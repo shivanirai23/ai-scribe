@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
+  addTranscription,
   startVisit,
   startRecording,
   pauseRecording,
@@ -14,6 +15,7 @@ import {
   setRecordingMode,
   setShowModeWarning,
   setShowQRCode,
+  setReportLoading,
   setReportData,
 } from "@/store/slices/recordingSlice";
 import { Header, UserProfileSidebar } from "@/components/recording/Header";
@@ -102,11 +104,298 @@ export default function RecordingPage() {
     dispatch(setRecordingMode(mode));
   };
 
-  const handleStartConversation = () => {
+  const handleStartConversation = async () => {
+    const message = conversationText.trim();
+    if (!message) return;
+
     const visitId = `visit_${Date.now()}`;
     dispatch(startVisit(visitId));
-    dispatch(setReportData(EMPTY_REPORT));
+    dispatch(addTranscription(message));
+    dispatch(setReportLoading(true));
     router.push("/visit-details");
+
+    const callAgentRoute = async <T,>(url: string) => {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message,
+          }),
+        });
+
+        const data = (await response.json()) as T & { error?: string };
+
+        if (!response.ok) {
+          return {
+            ok: false as const,
+            data,
+            error: data.error || `Request failed for ${url}`,
+          };
+        }
+
+        return {
+          ok: true as const,
+          data,
+          error: null,
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          data: null,
+          error: error instanceof Error ? error.message : `Request failed for ${url}`,
+        };
+      }
+    };
+
+    const [visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult] =
+      await Promise.all([
+        callAgentRoute<{
+          visit_notes?: string[];
+        }>("/api/visit-notes"),
+        callAgentRoute<{
+          subjective?: string;
+          objective?: string;
+          assessment?: string;
+          plan?: string;
+        }>("/api/soap-notes"),
+        callAgentRoute<{
+          icd_codes?: Array<{
+            icd_10_code: string;
+            name: string;
+          }>;
+        }>("/api/icd-10-codes"),
+        callAgentRoute<{
+          codes?: Array<{
+            cpt2_code: string;
+            description: string;
+          }>;
+        }>("/api/cpt2-codes"),
+        callAgentRoute<{
+          follow_ups?: unknown[];
+        }>("/api/follow-ups"),
+        callAgentRoute<{
+          em_code?: string;
+          description?: string;
+        }>("/api/em-code"),
+        callAgentRoute<{
+          medication?: unknown[];
+        }>("/api/medications"),
+      ]);
+
+    const visitData = (visitResult.data || {}) as {
+        visit_notes?: string[];
+      };
+
+    const soapData = (soapResult.data || {}) as {
+        subjective?: string;
+        objective?: string;
+        assessment?: string;
+        plan?: string;
+      };
+
+    const icdData = (icdResult.data || {}) as {
+        icd_codes?: Array<{
+          icd_10_code: string;
+          name: string;
+        }>;
+      };
+
+    const cpt2Data = (cpt2Result.data || {}) as {
+        codes?: Array<{
+          cpt2_code: string;
+          description: string;
+        }>;
+      };
+
+    const followUpData = (followUpResult.data || {}) as {
+        follow_ups?: unknown[];
+      };
+
+    const emCodeData = (emCodeResult.data || {}) as {
+        em_code?: string;
+        description?: string;
+      };
+
+    const medicationData = (medicationResult.data || {}) as {
+        medication?: unknown[];
+      };
+
+    const mappedVisitNotes = (visitData.visit_notes || []).filter((item) => item.trim().length > 0);
+    const subjective = soapData.subjective?.trim() || "";
+    const objective = soapData.objective?.trim() || "";
+    const assessment = soapData.assessment?.trim() || "";
+    const plan = soapData.plan?.trim() || "";
+    const mappedIcdCodes = icdData.icd_codes || [];
+    const mappedCpt2Codes = cpt2Data.codes || [];
+    const firstFollowUp = (followUpData.follow_ups || [])[0];
+    const mappedFollowUp = (() => {
+        if (!firstFollowUp) {
+          return null;
+        }
+
+        if (typeof firstFollowUp === "string") {
+          return {
+            duration: "",
+            reason: firstFollowUp,
+          };
+        }
+
+        if (typeof firstFollowUp === "object") {
+          const item = firstFollowUp as {
+            duration?: unknown;
+            reason?: unknown;
+            description?: unknown;
+            text?: unknown;
+            date?: unknown;
+          };
+
+          const duration =
+            typeof item.duration === "string"
+              ? item.duration
+              : typeof item.date === "string"
+                ? item.date
+                : "";
+          const reason =
+            typeof item.reason === "string"
+              ? item.reason
+              : typeof item.description === "string"
+                ? item.description
+                : typeof item.text === "string"
+                  ? item.text
+                  : "";
+
+          if (!duration && !reason) {
+            return null;
+          }
+
+          return {
+            duration,
+            reason,
+          };
+        }
+
+        return null;
+      })();
+
+    const mappedPrescribedMedications = (medicationData.medication || [])
+      .map((item) => {
+        if (typeof item === "string") {
+          return {
+            correct_medicine_name: item,
+            dosage: "",
+            unit: "",
+            frequency: { morning: null, afternoon: null, night: null },
+            start_date: "",
+            days: "",
+            instruction: "",
+          };
+        }
+
+        if (item && typeof item === "object") {
+          const med = item as {
+            correct_medicine_name?: unknown;
+            medicine_name?: unknown;
+            name?: unknown;
+            dosage?: unknown;
+            unit?: unknown;
+            start_date?: unknown;
+            days?: unknown;
+            instruction?: unknown;
+            frequency?: unknown;
+          };
+
+          const frequency =
+            med.frequency && typeof med.frequency === "object"
+              ? (med.frequency as {
+                  morning?: unknown;
+                  afternoon?: unknown;
+                  night?: unknown;
+                })
+              : {};
+
+          const medicineName =
+            typeof med.correct_medicine_name === "string"
+              ? med.correct_medicine_name
+              : typeof med.medicine_name === "string"
+                ? med.medicine_name
+                : typeof med.name === "string"
+                  ? med.name
+                  : "";
+
+          if (!medicineName) {
+            return null;
+          }
+
+          return {
+            correct_medicine_name: medicineName,
+            dosage: typeof med.dosage === "string" ? med.dosage : "",
+            unit: typeof med.unit === "string" ? med.unit : "",
+            frequency: {
+              morning: typeof frequency.morning === "string" ? frequency.morning : null,
+              afternoon: typeof frequency.afternoon === "string" ? frequency.afternoon : null,
+              night: typeof frequency.night === "string" ? frequency.night : null,
+            },
+            start_date: typeof med.start_date === "string" ? med.start_date : "",
+            days: typeof med.days === "string" ? med.days : "",
+            instruction: typeof med.instruction === "string" ? med.instruction : "",
+          };
+        }
+
+        return null;
+      })
+      .filter((item): item is ReportData["medication"]["prescribed_medications"][number] => item !== null);
+
+    const failedAgents = [
+      visitResult.ok ? null : `Visit notes: ${visitResult.error}`,
+      soapResult.ok ? null : `SOAP notes: ${soapResult.error}`,
+      icdResult.ok ? null : `ICD-10: ${icdResult.error}`,
+      cpt2Result.ok ? null : `CPT-2: ${cpt2Result.error}`,
+      followUpResult.ok ? null : `Follow-up: ${followUpResult.error}`,
+      emCodeResult.ok ? null : `E&M: ${emCodeResult.error}`,
+      medicationResult.ok ? null : `Medication: ${medicationResult.error}`,
+    ].filter((item): item is string => item !== null);
+
+    dispatch(
+      setReportData({
+        ...EMPTY_REPORT,
+        visitNotes:
+          mappedVisitNotes.length > 0
+            ? [mappedVisitNotes.join("\n\n")]
+            : visitResult.ok
+              ? ["No visit notes were returned by the agent."]
+              : [`Visit notes generation failed: ${visitResult.error}`],
+        soapNote: {
+          subjective: subjective ? { subjective } : {},
+          objective: objective ? { objective } : {},
+          assessment: assessment ? { assessment } : {},
+          plan: plan ? { plan } : {},
+        },
+        icdCodes: {
+          icd_codes: mappedIcdCodes,
+        },
+        cpt2Codes: {
+          codes: mappedCpt2Codes,
+        },
+        emCodes: {
+          em_code: emCodeData.em_code || "",
+          description: emCodeData.description || "",
+        },
+        followup: {
+          follow_up_appointment: mappedFollowUp,
+        },
+        medication: {
+          prescribed_medications: mappedPrescribedMedications,
+          in_clinic_medications: [],
+        },
+      })
+    );
+
+    if (failedAgents.length > 0) {
+      console.warn("Some agent requests failed:", failedAgents);
+    }
   };
 
   const dismissAlert = (id: string) => {

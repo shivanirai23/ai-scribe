@@ -142,9 +142,10 @@ function MedicalNotesTab() {
             {soapSections.map(({ key, label }) => {
               const section = reportData.soapNote[key];
               const text = Object.entries(section)
-                .map(([k, v]) => `${k}: ${v}`)
+                .map(([k, v]) => (k ? `${k}: ${v}` : `${v}`))
                 .join("\n");
               const isExpanded = expandedSoap[key];
+              const canToggle = text.trim().length > 180;
               return (
                 <div
                   key={key}
@@ -152,11 +153,11 @@ function MedicalNotesTab() {
                 >
                   <h4 className="font-medium text-base text-black mb-1">{label}</h4>
                   <div
-                    className={`text-sm text-slate-700 whitespace-pre-line ${!isExpanded ? "line-clamp-2" : ""}`}
+                    className={`text-sm text-slate-700 whitespace-pre-line ${!isExpanded && canToggle ? "line-clamp-2" : ""}`}
                   >
                     {text}
                   </div>
-                  {!isExpanded && (
+                  {canToggle && !isExpanded && (
                     <button
                       onClick={() => setExpandedSoap((p) => ({ ...p, [key]: true }))}
                       className="text-sm text-blue-500 hover:text-blue-700 font-medium mt-1"
@@ -164,7 +165,7 @@ function MedicalNotesTab() {
                       Read more
                     </button>
                   )}
-                  {isExpanded && (
+                  {canToggle && isExpanded && (
                     <button
                       onClick={() => setExpandedSoap((p) => ({ ...p, [key]: false }))}
                       className="text-sm text-blue-500 hover:text-blue-700 font-medium mt-1"

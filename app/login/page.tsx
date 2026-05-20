@@ -24,7 +24,7 @@ export default function LoginPage() {
   const [forgotMsg, setForgotMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [forgotLoading, setForgotLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -34,8 +34,20 @@ export default function LoginPage() {
     }
 
     setIsLoading(true);
-    // Simulate auth — for demo, any credentials work
-    setTimeout(() => {
+    try {
+      const authResponse = await fetch("/api/auth/token", {
+        method: "POST",
+      });
+
+      const authData = (await authResponse.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!authResponse.ok || !authData.success) {
+        throw new Error(authData.error || "Failed to get auth token");
+      }
+
       dispatch(
         setUser({
           firstName: "Sarah",
@@ -50,7 +62,11 @@ export default function LoginPage() {
       );
       dispatch(setLoggedIn(true));
       router.push("/recording");
-    }, 800);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Sign in failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleForgotPassword = (e: React.FormEvent) => {
