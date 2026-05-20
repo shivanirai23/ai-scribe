@@ -1,0 +1,428 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
+import {
+  User,
+  Mail,
+  Phone,
+  Lock,
+  Eye,
+  EyeOff,
+  Building2,
+  Stethoscope,
+  Info,
+} from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const SPECIALTIES = [
+  "Internal Medicine",
+  "Family Medicine",
+  "Cardiology",
+  "Dermatology",
+  "Pediatrics",
+  "Neurology",
+  "Orthopedics",
+  "Psychiatry",
+  "Radiology",
+  "Oncology",
+];
+
+const COUNTRY_CODES = [
+  { code: "+1", country: "US/CA" },
+  { code: "+44", country: "UK" },
+  { code: "+91", country: "IN" },
+  { code: "+61", country: "AU" },
+  { code: "+49", country: "DE" },
+];
+
+interface FormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  countryCode: string;
+  phone: string;
+  specialty: string;
+  clinicName: string;
+  password: string;
+  confirmPassword: string;
+  inviteCode: string;
+}
+
+interface FormErrors {
+  [key: string]: string;
+}
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <div className="relative group inline-flex">
+      <Info className="h-4 w-4 text-slate-400 cursor-help" />
+      <div className="absolute left-0 top-full mt-1 z-50 hidden group-hover:block bg-slate-800 text-white text-xs rounded-md px-2 py-1 w-[225px] text-justify shadow-lg">
+        {text}
+      </div>
+    </div>
+  );
+}
+
+export default function SignupPage() {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [serverError, setServerError] = useState("");
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const [form, setForm] = useState<FormData>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    countryCode: "+1",
+    phone: "",
+    specialty: "",
+    clinicName: "",
+    password: "",
+    confirmPassword: "",
+    inviteCode: "",
+  });
+
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  const validate = (): boolean => {
+    const newErrors: FormErrors = {};
+
+    if (!form.firstName || form.firstName.length < 2 || !/^[a-zA-Z\s]+$/.test(form.firstName)) {
+      newErrors.firstName = "First name must be at least 2 letters";
+    }
+    if (!form.lastName || form.lastName.length < 2 || !/^[a-zA-Z\s]+$/.test(form.lastName)) {
+      newErrors.lastName = "Last name must be at least 2 letters";
+    }
+    if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      newErrors.email = "Valid email is required";
+    }
+    if (!form.phone || !/^\d+$/.test(form.phone)) {
+      newErrors.phone = "Valid phone number is required";
+    }
+    if (!form.specialty) {
+      newErrors.specialty = "Please select a specialty";
+    }
+    if (!form.clinicName || form.clinicName.length < 2) {
+      newErrors.clinicName = "Clinic name must be at least 2 characters";
+    }
+    if (
+      !form.password ||
+      form.password.length < 8 ||
+      !/[a-z]/.test(form.password) ||
+      !/[A-Z]/.test(form.password) ||
+      !/[0-9]/.test(form.password) ||
+      !/[^a-zA-Z0-9]/.test(form.password)
+    ) {
+      newErrors.password =
+        "Password must be 8+ chars with lowercase, uppercase, number, and special character";
+    }
+    if (form.password !== form.confirmPassword) {
+      newErrors.confirmPassword = "Passwords do not match";
+    }
+    if (!form.inviteCode) {
+      newErrors.inviteCode = "Invite code is required";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setServerError("");
+    if (!validate()) return;
+
+    setIsLoading(true);
+    // Simulate signup — navigate to login
+    setTimeout(() => {
+      setIsLoading(false);
+      router.push("/login");
+    }, 800);
+  };
+
+  const updateField = (field: keyof FormData, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: "" }));
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-white flex items-center justify-center p-4 overflow-hidden relative">
+      {/* Background radial gradients */}
+      <div className="absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(140,198,63,0.1),transparent_40%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(229,100,159,0.1),transparent_40%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(41,171,226,0.1),transparent_40%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_right,rgba(247,148,29,0.1),transparent_40%)]" />
+      </div>
+
+      <div className="w-full max-w-2xl animate-fade-in-up py-8">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <Image
+            src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-3iYmNCbNrAz3xweW1kCvDFAA44QRiG.png"
+            alt="HIKIGAI AIScribe Logo"
+            width={80}
+            height={80}
+            className="mx-auto"
+            unoptimized
+          />
+          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-brand-gradient mt-4">
+            Create Your Account
+          </h1>
+          <p className="text-slate-600 mt-2">
+            Join HIKIGAI AIScribe and streamline your medical transcription
+          </p>
+        </div>
+
+        {/* Form card */}
+        <div className="bg-white p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)]">
+          {serverError && (
+            <div className="text-center mb-4 p-3 text-sm text-red-500 bg-red-50 rounded-lg border border-red-200">
+              {serverError}
+            </div>
+          )}
+
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* First Name */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">First Name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="First Name"
+                    value={form.firstName}
+                    onChange={(e) => updateField("firstName", e.target.value)}
+                    className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.firstName ? "border-red-500" : "border-slate-200"}`}
+                  />
+                  {errors.firstName && (
+                    <p className="text-red-500 text-xs mt-1">{errors.firstName}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Last Name */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Last Name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Last Name"
+                    value={form.lastName}
+                    onChange={(e) => updateField("lastName", e.target.value)}
+                    className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.lastName ? "border-red-500" : "border-slate-200"}`}
+                  />
+                  {errors.lastName && (
+                    <p className="text-red-500 text-xs mt-1">{errors.lastName}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Email */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-slate-700">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="email"
+                    placeholder="Email Address"
+                    value={form.email}
+                    onChange={(e) => updateField("email", e.target.value)}
+                    className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.email ? "border-red-500" : "border-slate-200"}`}
+                  />
+                  {errors.email && (
+                    <p className="text-red-500 text-xs mt-1">{errors.email}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Phone — with country code */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-slate-700">Phone Number</label>
+                <div className="flex gap-2">
+                  <div className="w-1/3">
+                    <Select
+                      value={form.countryCode}
+                      onValueChange={(v) => updateField("countryCode", v)}
+                    >
+                      <SelectTrigger className="!h-12">
+                        <SelectValue placeholder="+1" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COUNTRY_CODES.map((c) => (
+                          <SelectItem key={c.code} value={c.code}>
+                            {c.code} ({c.country})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="relative w-2/3">
+                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="tel"
+                      placeholder="Phone Number"
+                      value={form.phone}
+                      onChange={(e) =>
+                        updateField("phone", e.target.value.replace(/\D/g, ""))
+                      }
+                      className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.phone ? "border-red-500" : "border-slate-200"}`}
+                    />
+                  </div>
+                </div>
+                {errors.phone && (
+                  <p className="text-red-500 text-xs mt-1">{errors.phone}</p>
+                )}
+              </div>
+
+              {/* Specialty */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Specialty</label>
+                <Select
+                  value={form.specialty}
+                  onValueChange={(v) => updateField("specialty", v)}
+                >
+                  <SelectTrigger className={`!h-12 ${errors.specialty ? "border-red-500" : ""}`}>
+                    <div className="flex items-center gap-2">
+                      <Stethoscope className="h-4 w-4 text-slate-400" />
+                      <SelectValue placeholder="Specialty" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SPECIALTIES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {errors.specialty && (
+                  <p className="text-red-500 text-xs mt-1">{errors.specialty}</p>
+                )}
+              </div>
+
+              {/* Clinic Name */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Clinic Name</label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Clinic Name"
+                    value={form.clinicName}
+                    onChange={(e) => updateField("clinicName", e.target.value)}
+                    className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.clinicName ? "border-red-500" : "border-slate-200"}`}
+                  />
+                  {errors.clinicName && (
+                    <p className="text-red-500 text-xs mt-1">{errors.clinicName}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                  Password
+                  <InfoTooltip text="Password must be at least 8 characters and include lowercase, uppercase, number, and special character" />
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={form.password}
+                    onChange={(e) => updateField("password", e.target.value)}
+                    className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.password ? "border-red-500" : "border-slate-200"}`}
+                  />
+                  {errors.password && (
+                    <p className="text-red-500 text-xs mt-1">{errors.password}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Confirm Password */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Confirm Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    placeholder="Confirm Password"
+                    value={form.confirmPassword}
+                    onChange={(e) => updateField("confirmPassword", e.target.value)}
+                    className={`pl-10 pr-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.confirmPassword ? "border-red-500" : "border-slate-200"}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                  {errors.confirmPassword && (
+                    <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Invite Code */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-slate-700">Invite Code</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Invite Code"
+                    value={form.inviteCode}
+                    onChange={(e) => updateField("inviteCode", e.target.value)}
+                    className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.inviteCode ? "border-red-500" : "border-slate-200"}`}
+                  />
+                  {errors.inviteCode && (
+                    <p className="text-red-500 text-xs mt-1">{errors.inviteCode}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Submit CTA */}
+            <div className="pt-4">
+              <div className="relative group">
+                <div className="absolute -inset-0.5 bg-brand-gradient rounded-xl blur opacity-50 group-hover:opacity-100 transition duration-1000 group-hover:duration-200" />
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="relative w-full h-12 bg-white text-slate-800 hover:text-white hover:bg-brand-blue rounded-xl text-base font-medium transition-all duration-300 border-none flex items-center justify-center"
+                >
+                  {isLoading && (
+                    <div className="mr-2 h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  )}
+                  Create Account
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <div className="mt-8 text-center">
+            <span className="text-slate-600">Already have an account? </span>
+            <a
+              href="/login"
+              className="text-brand-pink hover:text-brand-orange transition-colors font-medium"
+            >
+              Sign in
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
