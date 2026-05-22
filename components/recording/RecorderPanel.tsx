@@ -44,18 +44,6 @@ export function RecorderPanel({
             transition={{ duration: 0.5 }}
             className="flex flex-col items-center h-full justify-center gap-6"
           >
-            <img
-              src="/vt_img.png"
-              alt="HIKIGAI AIScribe"
-              width={400}
-              height={400}
-              className="mr-10 max-w-[300px] sm:max-w-[400px]"
-              onError={(e) => {
-                // Fallback if image doesn't exist
-                const target = e.currentTarget as HTMLImageElement;
-                target.style.display = "none";
-              }}
-            />
             <button
               onClick={onStartVisit}
               className="bg-brand-green hover:bg-opacity-90 text-white rounded-xl px-6 py-3 text-base font-medium shadow-md hover:shadow-lg transition-all"

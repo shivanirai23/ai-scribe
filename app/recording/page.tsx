@@ -970,31 +970,7 @@ export default function RecordingPage() {
 
       {/* Main content */}
       <main className="container mx-auto pt-2 pb-6 px-6 flex-1 flex flex-col">
-        {/* Mode toggle */}
-        <div className="flex justify-center mb-6">
-          <div className="inline-flex rounded-full p-1 shadow-[0_8px_30px_rgb(0,0,0,0.06)]">
-            <button
-              onClick={() => handleModeToggle("normal")}
-              className={`px-4 py-1 rounded-full text-xs font-medium transition-all ${
-                recording.recordingMode === "normal"
-                  ? "bg-brand-green text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Normal Mode
-            </button>
-            <button
-              onClick={() => handleModeToggle("conversational")}
-              className={`px-4 py-1 rounded-full text-xs font-medium transition-all ${
-                recording.recordingMode === "conversational"
-                  ? "bg-brand-green text-white shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Conversational Mode
-            </button>
-          </div>
-        </div>
+        {/* Mode toggle - hidden, normal mode always active */}
 
         {recording.recordingMode === "conversational" ? (
           <div className="w-full flex-1 flex items-start justify-center">

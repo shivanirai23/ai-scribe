@@ -83,7 +83,7 @@ const initialState: RecordingState = {
   isSpeechDetected: false,
   isConnected: false,
   isConnecting: false,
-  recordingMode: "conversational",
+  recordingMode: "normal",
   currentView: "recording",
   transcription: [],
   pendingBufferCount: 0,
