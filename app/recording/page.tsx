@@ -10,6 +10,7 @@ import {
   pauseRecording,
   resumeRecording,
   stopRecording,
+  endVisit,
   tickTimer,
   setCurrentView,
   setShowQRCode,
@@ -191,6 +192,7 @@ export default function RecordingPage() {
   const router = useRouter();
   const recording = useAppSelector((s) => s.recording);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [noTranscriptToast, setNoTranscriptToast] = useState(false);
   const [conversationText, setConversationText] = useState("");
   const [liveDraft, setLiveDraft] = useState("");
   const liveDraftRef = useRef("");
@@ -1115,18 +1117,15 @@ export default function RecordingPage() {
       .filter((line) => line.length > 0)
       .join("\n");
 
-    dispatch(stopRecording());
-
     if (!transcriptMessage) {
-      dispatch(
-        setReportData({
-          ...EMPTY_REPORT,
-          visitNotes: ["No transcription was captured for this visit."],
-        })
-      );
-      dispatch(setCurrentView("report"));
+      // Fully reset state so Start Visit button reappears
+      dispatch(endVisit());
+      setNoTranscriptToast(true);
+      setTimeout(() => setNoTranscriptToast(false), 5000);
       return;
     }
+
+    dispatch(stopRecording());
 
     await generateReportFromMessage(transcriptMessage);
     dispatch(setCurrentView("report"));
@@ -1237,6 +1236,29 @@ export default function RecordingPage() {
           onResume={() => dispatch(resumeRecording())}
           onStop={handleStop}
         />
+      )}
+
+      {/* No-transcription toast */}
+      {noTranscriptToast && (
+        <div className="fixed bottom-6 right-6 z-[10001] flex items-start gap-3 bg-white border border-rose-200 shadow-2xl rounded-2xl px-5 py-4 max-w-sm animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <div className="flex-shrink-0 mt-0.5 h-8 w-8 rounded-full bg-rose-100 flex items-center justify-center">
+            <svg className="h-4 w-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-sm text-slate-900">No transcription captured</p>
+            <p className="text-sm text-slate-500 mt-0.5">Please start recording and speak before stopping.</p>
+          </div>
+          <button
+            onClick={() => setNoTranscriptToast(false)}
+            className="flex-shrink-0 text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       )}
 
     </div>
