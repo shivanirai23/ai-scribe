@@ -16,7 +16,11 @@ export function ProcessingCompletionDialog({
 }: ProcessingCompletionDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md p-0 overflow-hidden">
+      <DialogContent
+        className="sm:max-w-md p-0 overflow-hidden"
+        hiddenTitle="Report ready"
+        hiddenDescription="Confirms report generation is complete and offers to view it"
+      >
         <div className="p-6">
           <div className="flex flex-col items-center text-center gap-4">
             <div className="h-16 w-16 rounded-full bg-brandLight-green flex items-center justify-center">

@@ -99,7 +99,7 @@ const initialState: RecordingState = {
   showModeWarning: false,
   showQRCode: false,
   showUserSidebar: false,
-  showPremiumBanner: false,
+  showPremiumBanner: true,
 };
 
 const recordingSlice = createSlice({
@@ -141,6 +141,9 @@ const recordingSlice = createSlice({
     },
     addTranscription(state, action: PayloadAction<string>) {
       state.transcription.push(action.payload);
+    },
+    setTranscription(state, action: PayloadAction<string[]>) {
+      state.transcription = action.payload;
     },
     setReportData(state, action: PayloadAction<ReportData>) {
       state.reportData = action.payload;
@@ -211,6 +214,7 @@ export const {
   tickTimer,
   setSpeechDetected,
   addTranscription,
+  setTranscription,
   setReportData,
   setReportLoading,
   setCurrentView,

@@ -11,7 +11,11 @@ interface QRCodeDialogProps {
 export function QRCodeDialog({ open, onClose, visitId }: QRCodeDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md p-6">
+      <DialogContent
+        className="max-w-md p-6"
+        hiddenTitle="QR code"
+        hiddenDescription="Scan this code to connect the iOS app"
+      >
         <div className="flex flex-col items-center gap-4">
           <h3 className="text-lg font-semibold text-slate-700">Scan to connect iOS app</h3>
           <div className="w-48 h-48 border border-slate-200 rounded-xl flex items-center justify-center bg-white">
@@ -49,7 +53,12 @@ interface ModeWarningDialogProps {
 export function ModeWarningDialog({ open, onClose }: ModeWarningDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md p-6" showClose={false}>
+      <DialogContent
+        className="max-w-md p-6"
+        showClose={false}
+        hiddenTitle="Cannot switch mode"
+        hiddenDescription="Explains why mode switching is disabled during an active conversational visit"
+      >
         <h2 className="text-slate-700 text-lg font-medium">Cannot Switch to Normal Mode</h2>
         <div className="py-4">
           <p className="text-slate-600 text-sm">

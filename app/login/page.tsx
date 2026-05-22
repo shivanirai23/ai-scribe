@@ -105,6 +105,7 @@ export default function LoginPage() {
             height={80}
             className="mx-auto"
             unoptimized
+            priority
           />
           <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-brand-gradient mt-4">
             Welcome
@@ -209,7 +210,11 @@ export default function LoginPage() {
 
       {/* Forgot Password Dialog */}
       <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
-        <DialogContent className="w-11/12 sm:w-full max-w-[425px] p-6">
+        <DialogContent
+          className="w-11/12 sm:w-full max-w-[425px] p-6"
+          hiddenTitle="Forgot password"
+          hiddenDescription="Send a password reset link to the entered email address"
+        >
           <h2 className="text-slate-700 text-lg font-medium mb-1">Forgot Password</h2>
           <p className="text-slate-500 text-sm mb-4">
             Enter your email address below and we&apos;ll send you a link to reset your password.

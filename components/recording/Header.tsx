@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Crown, QrCode, X, LogOut, Save, LockKeyhole, Info } from "lucide-react";
+import { Crown, QrCode, X, LogOut, Save, LockKeyhole, Info, Eye, EyeOff } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   setShowUserSidebar,
@@ -296,7 +296,11 @@ export function UserProfileSidebar() {
 
       {/* Change Password Dialog */}
       <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
-        <DialogContent className="w-11/12 sm:w-full max-w-[425px] p-6">
+        <DialogContent
+          className="w-11/12 sm:w-full max-w-[425px] p-6"
+          hiddenTitle="Change password"
+          hiddenDescription="Form to update account password"
+        >
           <h2 className="text-slate-700 text-lg font-medium mb-4">Change Password</h2>
           {pwError && (
             <div className="bg-red-100 rounded-md p-2 border border-red-200 mb-2">
@@ -344,7 +348,7 @@ export function UserProfileSidebar() {
                   onClick={() => setShowConfirmPw(!showConfirmPw)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
                 >
-                  {showConfirmPw ? <Info className="h-4 w-4" /> : <Info className="h-4 w-4" />}
+                  {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>

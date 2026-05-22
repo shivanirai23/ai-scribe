@@ -12,6 +12,13 @@ type ProcedureItem = {
   order_status: string;
 };
 
+type CptCodeItem = {
+  name: string;
+  cpt_code: string;
+  rank?: number;
+  confidence?: string;
+};
+
 function normalizeProcedures(payload: unknown): ProcedureItem[] {
   if (!payload || typeof payload !== "object") {
     return [];
@@ -45,6 +52,51 @@ function normalizeProcedures(payload: unknown): ProcedureItem[] {
     .filter((item): item is ProcedureItem => item !== null);
 }
 
+function normalizeCptCodes(payload: unknown): CptCodeItem[] {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const data = payload as {
+    cpt_codes?: unknown;
+    output?: { cpt_codes?: unknown };
+    data?: { cpt_codes?: unknown };
+  };
+
+  const cptCodes = data.cpt_codes ?? data.output?.cpt_codes ?? data.data?.cpt_codes;
+
+  if (!Array.isArray(cptCodes)) {
+    return [];
+  }
+
+  return cptCodes
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const item = entry as Record<string, unknown>;
+      const cpt_code = typeof item.cpt_code === "string" ? item.cpt_code : "";
+      const name = typeof item.name === "string" ? item.name : "";
+
+      if (!cpt_code || !name) {
+        return null;
+      }
+
+      const normalized: CptCodeItem = {
+        cpt_code,
+        name,
+      };
+
+      if (typeof item.rank === "number") {
+        normalized.rank = item.rank;
+      }
+      if (typeof item.confidence === "string") {
+        normalized.confidence = item.confidence;
+      }
+
+      return normalized;
+    })
+    .filter((item): item is CptCodeItem => item !== null);
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as CptPipelineRequest;
@@ -58,7 +110,8 @@ export async function POST(request: Request) {
     // console.log("[cpt-coding-pipeline] raw invoke output:", JSON.stringify(agentResponse));
 
     const procedures = normalizeProcedures(agentResponse);
-    return NextResponse.json({ procedures }, { status: 200 });
+    const cpt_codes = normalizeCptCodes(agentResponse);
+    return NextResponse.json({ procedures, cpt_codes }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate CPT pipeline";
     return NextResponse.json({ error: message }, { status: 500 });

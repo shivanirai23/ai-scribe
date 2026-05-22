@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Image from "next/image";
 import { Mic, Play, Pause } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 
@@ -37,13 +38,21 @@ export function RecorderPanel({
   if (!visitId) {
     return (
       <div className="bg-white rounded-2xl p-8 flex justify-center items-center shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-        <div className="flex flex-col items-center h-full">
+        <div className="flex flex-col items-center h-full w-full">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.5 }}
             className="flex flex-col items-center h-full justify-center gap-6"
           >
+            <Image
+              src="/vt_img.png"
+              alt="Visit illustration"
+              width={400}
+              height={400}
+              className="mr-10"
+              priority
+            />
             <button
               onClick={onStartVisit}
               className="bg-brand-green hover:bg-opacity-90 text-white rounded-xl px-6 py-3 text-base font-medium shadow-md hover:shadow-lg transition-all"

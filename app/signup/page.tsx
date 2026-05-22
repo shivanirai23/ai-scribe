@@ -169,6 +169,7 @@ export default function SignupPage() {
             height={80}
             className="mx-auto"
             unoptimized
+            priority
           />
           <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-brand-gradient mt-4">
             Create Your Account

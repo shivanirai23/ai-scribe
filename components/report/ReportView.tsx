@@ -12,41 +12,54 @@ import {
   Lock,
   MessageSquare,
   RefreshCcw,
-  Pencil,
-  Save,
   Calendar,
+  FileText,
+  Stethoscope,
+  Pill,
+  FlaskConical,
+  ClipboardCheck,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   setCurrentView,
   endVisit,
-  updateVisitNote,
+  setReportData,
 } from "@/store/slices/recordingSlice";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import Image from "next/image";
 
-function RetryButton({ onClick }: { onClick: () => void }) {
+
+function RetryButton({ onClick, isLoading = false }: { onClick: () => void; isLoading?: boolean }) {
   return (
     <button
       onClick={onClick}
-      className="text-xs px-2 h-7 rounded-full border border-slate-200 hover:border-amber-500 hover:text-amber-500 transition-colors flex items-center"
+      disabled={isLoading}
+      className="text-xs px-2 h-7 rounded-full border border-slate-200 hover:border-amber-500 hover:text-amber-500 transition-colors flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
     >
-      <RefreshCcw className="h-3 w-3 mr-1" />
-      Retry
+      <RefreshCcw className={`h-3 w-3 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+      {isLoading ? "Retrying" : "Retry"}
     </button>
   );
 }
 
-function MedicalNotesTab() {
+function buildTranscriptMessage(transcription: string[]) {
+  return transcription
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
+function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
 
-  const [editingVisitNotes, setEditingVisitNotes] = useState(false);
-  const [editedNote, setEditedNote] = useState("");
   const [expandedSoap, setExpandedSoap] = useState<Record<string, boolean>>({});
+  const [retryingSection, setRetryingSection] = useState<"visit" | "soap" | "icd" | "cpt" | "cpt2" | "em" | null>(null);
+  const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
 
   if (reportLoading) {
     return (
@@ -61,15 +74,250 @@ function MedicalNotesTab() {
 
   if (!reportData) return null;
 
-  const startEdit = () => {
-    setEditedNote(reportData.visitNotes[0] || "");
-    setEditingVisitNotes(true);
+  const retryVisitNotes = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("visit");
+    setRetryErrors((prev) => ({ ...prev, visit: "" }));
+    try {
+      const response = await fetch("/api/visit-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as { visit_notes?: string[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Visit notes retry failed");
+      }
+
+      const mappedVisitNotes = (data.visit_notes || []).filter((item) => item.trim().length > 0);
+      dispatch(
+        setReportData({
+          ...reportData,
+          visitNotes:
+            mappedVisitNotes.length > 0
+              ? [mappedVisitNotes.join("\n\n")]
+              : ["No visit notes were returned by the agent."],
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        visit: error instanceof Error ? error.message : "Visit notes retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
   };
 
-  const saveEdit = () => {
-    dispatch(updateVisitNote(editedNote));
-    setEditingVisitNotes(false);
+  const retrySoapNotes = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("soap");
+    setRetryErrors((prev) => ({ ...prev, soap: "" }));
+    try {
+      const response = await fetch("/api/soap-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as {
+        subjective?: string;
+        objective?: string;
+        assessment?: string;
+        plan?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "SOAP notes retry failed");
+      }
+
+      const subjective = data.subjective?.trim() || "";
+      const objective = data.objective?.trim() || "";
+      const assessment = data.assessment?.trim() || "";
+      const plan = data.plan?.trim() || "";
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          soapNote: {
+            subjective: subjective ? { subjective } : {},
+            objective: objective ? { objective } : {},
+            assessment: assessment ? { assessment } : {},
+            plan: plan ? { plan } : {},
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        soap: error instanceof Error ? error.message : "SOAP notes retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
   };
+
+  const retryIcdCodes = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("icd");
+    setRetryErrors((prev) => ({ ...prev, icd: "" }));
+    try {
+      const response = await fetch("/api/icd-10-codes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data =
+        (await response.json()) as {
+          icd_codes?: Array<{ icd_10_code: string; name: string }>;
+          error?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(data.error || "ICD-10 retry failed");
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          icdCodes: {
+            icd_codes: data.icd_codes || [],
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        icd: error instanceof Error ? error.message : "ICD-10 retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const retryCptCodes = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("cpt");
+    setRetryErrors((prev) => ({ ...prev, cpt: "" }));
+    try {
+      const response = await fetch("/api/cpt-pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as {
+        cpt_codes?: Array<{ cpt_code: string; name: string }>;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "CPT retry failed");
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          cptCodes: {
+            cpt_codes: data.cpt_codes || [],
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        cpt: error instanceof Error ? error.message : "CPT retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const retryCpt2Codes = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("cpt2");
+    setRetryErrors((prev) => ({ ...prev, cpt2: "" }));
+    try {
+      const response = await fetch("/api/cpt2-codes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as {
+        codes?: Array<{ cpt2_code: string; description: string }>;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "CPT-2 retry failed");
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          cpt2Codes: {
+            codes: data.codes || [],
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        cpt2: error instanceof Error ? error.message : "CPT-2 retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const retryEmCode = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("em");
+    setRetryErrors((prev) => ({ ...prev, em: "" }));
+    try {
+      const response = await fetch("/api/em-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as {
+        em_code?: string;
+        description?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "E/M retry failed");
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          emCodes: {
+            em_code: data.em_code || "",
+            description: data.description || "",
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        em: error instanceof Error ? error.message : "E/M retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const isVisitSummaryMissing =
+    !reportData.visitNotes[0] ||
+    reportData.visitNotes[0].startsWith("Visit notes generation failed:") ||
+    reportData.visitNotes[0] === "No visit notes were returned by the agent.";
 
   const soapSections = [
     { key: "subjective", label: "Subjective" },
@@ -86,48 +334,16 @@ function MedicalNotesTab() {
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">Visit Summary</h3>
             <div className="flex gap-2">
-              {!editingVisitNotes && reportData.visitNotes[0] && (
-                <button
-                  onClick={startEdit}
-                  className="h-8 w-8 p-0 flex items-center justify-center rounded hover:bg-slate-100 transition-colors"
-                >
-                  <Pencil className="h-4 w-4 text-slate-500" />
-                </button>
+              {isVisitSummaryMissing && (
+                <RetryButton onClick={retryVisitNotes} isLoading={retryingSection === "visit"} />
               )}
-              {!reportData.visitNotes[0] && <RetryButton onClick={() => {}} />}
             </div>
           </div>
-          {editingVisitNotes ? (
-            <div className="space-y-4 flex-1 flex flex-col">
-              <textarea
-                value={editedNote}
-                onChange={(e) => setEditedNote(e.target.value)}
-                className="w-full flex-1 min-h-[200px] p-4 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-blue/50 font-sans text-sm leading-relaxed resize-y"
-                placeholder="Enter visit notes..."
-              />
-              <div className="flex justify-end space-x-2">
-                <button
-                  onClick={() => setEditingVisitNotes(false)}
-                  className="text-slate-500 hover:text-slate-700 text-sm px-3 py-2"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveEdit}
-                  className="bg-brand-blue hover:bg-brand-blue/90 text-white rounded-md px-4 py-2 text-sm flex items-center transition-colors"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="text-justify whitespace-pre-line overflow-y-auto flex-1 min-h-0 pr-4 text-sm text-slate-700">
-              {reportData.visitNotes[0] || (
-                <p className="text-slate-400 italic">No visit summary available.</p>
-              )}
-            </div>
-          )}
+          <div className="text-justify whitespace-pre-line overflow-y-auto flex-1 min-h-0 pr-4 text-sm text-slate-700">
+            {reportData.visitNotes[0] || (
+              <p className="text-slate-400 italic">No visit summary available.</p>
+            )}
+          </div>
         </div>}
 
         {/* SOAP Notes */}
@@ -135,9 +351,12 @@ function MedicalNotesTab() {
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">SOAP Notes</h3>
             {soapSections.some(({ key }) => Object.keys(reportData.soapNote[key]).length === 0) && (
-              <RetryButton onClick={() => {}} />
+              <RetryButton onClick={retrySoapNotes} isLoading={retryingSection === "soap"} />
             )}
           </div>
+          {!!retryErrors.soap && (
+            <p className="text-xs text-rose-600 mb-2">{retryErrors.soap}</p>
+          )}
           <div className="space-y-3 overflow-y-auto flex-1">
             {soapSections.map(({ key, label }) => {
               const section = reportData.soapNote[key];
@@ -184,8 +403,11 @@ function MedicalNotesTab() {
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">ICD-10 Coding</h3>
-            {reportData.icdCodes.icd_codes.length === 0 && <RetryButton onClick={() => {}} />}
+            {reportData.icdCodes.icd_codes.length === 0 && (
+              <RetryButton onClick={retryIcdCodes} isLoading={retryingSection === "icd"} />
+            )}
           </div>
+          {!!retryErrors.icd && <p className="text-xs text-rose-600 mb-2">{retryErrors.icd}</p>}
           <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
             {reportData.icdCodes.icd_codes.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-2">No ICD codes available</p>
@@ -206,7 +428,11 @@ function MedicalNotesTab() {
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">CPT Codes</h3>
+            {reportData.cptCodes.cpt_codes.length === 0 && (
+              <RetryButton onClick={retryCptCodes} isLoading={retryingSection === "cpt"} />
+            )}
           </div>
+          {!!retryErrors.cpt && <p className="text-xs text-rose-600 mb-2">{retryErrors.cpt}</p>}
           <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
             {reportData.cptCodes.cpt_codes.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-2">No CPT codes available</p>
@@ -227,7 +453,11 @@ function MedicalNotesTab() {
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">CPT-2 Codes</h3>
+            {reportData.cpt2Codes.codes.length === 0 && (
+              <RetryButton onClick={retryCpt2Codes} isLoading={retryingSection === "cpt2"} />
+            )}
           </div>
+          {!!retryErrors.cpt2 && <p className="text-xs text-rose-600 mb-2">{retryErrors.cpt2}</p>}
           <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
             {reportData.cpt2Codes.codes.length === 0 ? (
               <p className="text-sm text-slate-500 text-center py-2">No CPT-2 codes available</p>
@@ -248,7 +478,11 @@ function MedicalNotesTab() {
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">E&amp;M Codes</h3>
+            {!reportData.emCodes.em_code && (
+              <RetryButton onClick={retryEmCode} isLoading={retryingSection === "em"} />
+            )}
           </div>
+          {!!retryErrors.em && <p className="text-xs text-rose-600 mb-2">{retryErrors.em}</p>}
           <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
             {!reportData.emCodes.em_code ? (
               <p className="text-sm text-slate-500 text-center py-2">No E&M codes available</p>
@@ -267,9 +501,12 @@ function MedicalNotesTab() {
   );
 }
 
-function OrdersTab() {
+function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
+  const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
+  const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | null>(null);
+  const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
 
   if (reportLoading) {
     return (
@@ -287,110 +524,559 @@ function OrdersTab() {
   if (!reportData) return null;
 
   const meds = reportData.medication.prescribed_medications;
-  const labs = reportData.labtest.lab_test as Array<{ name: string; reason?: string }>;
+  const labs = (reportData.labtest.lab_test as Array<Record<string, unknown>>)
+    .map((item) => {
+      const name = typeof item.name === "string" ? item.name : "";
+      if (!name.trim()) return null;
+      return {
+        name,
+        date: typeof item.date === "string" && item.date.trim() ? item.date : "N/A",
+        notes:
+          typeof item.notes === "string" && item.notes.trim()
+            ? item.notes
+            : typeof item.reason === "string" && item.reason.trim()
+              ? item.reason
+              : "N/A",
+      };
+    })
+    .filter((item): item is { name: string; date: string; notes: string } => item !== null);
   const followup = reportData.followup.follow_up_appointment;
   const vaccines = reportData.vaccine.vaccine as Array<{ name: string }>;
-  const procedures = reportData.procedure.procedure as Array<{ name: string; reason?: string }>;
-  const referrals = reportData.referrals as Array<{ specialist: string; reason?: string }>;
+  const procedures = (reportData.procedure.procedure as Array<Record<string, unknown>>)
+    .map((item) => {
+      const name =
+        typeof item.name === "string"
+          ? item.name
+          : typeof item.procedure_name === "string"
+            ? item.procedure_name
+            : "";
+      if (!name.trim()) return null;
+      return {
+        name,
+        date: typeof item.date === "string" && item.date.trim() ? item.date : "N/A",
+        notes:
+          typeof item.reason === "string"
+            ? item.reason
+            : typeof item.clinical_context === "string"
+              ? item.clinical_context
+              : "N/A",
+        badge:
+          typeof item.procedure_type === "string" && item.procedure_type.trim()
+            ? item.procedure_type === "imaging"
+              ? "Radiology Orders"
+              : item.procedure_type === "laboratory"
+                ? "Lab Procedure"
+                : "In House Procedure"
+            : "In House Procedure",
+      };
+    })
+    .filter((item): item is { name: string; date: string; notes: string; badge: string } => item !== null);
+
+  const referrals = (reportData.referrals as Array<Record<string, unknown>>)
+    .map((item) => {
+      const specialist =
+        typeof item.specialist === "string"
+          ? item.specialist
+          : typeof item.name === "string"
+            ? item.name
+            : "";
+      if (!specialist.trim()) return null;
+      return {
+        specialist,
+        reason:
+          typeof item.reason === "string"
+            ? item.reason
+            : typeof item.clinical_context === "string"
+              ? item.clinical_context
+              : "",
+        notes:
+          typeof item.notes === "string"
+            ? item.notes
+            : "",
+        badge:
+          typeof item.type === "string" && item.type.trim()
+            ? item.type
+            : "routine",
+      };
+    })
+    .filter((item): item is { specialist: string; reason: string; notes: string; badge: string } => item !== null);
+
+  const followupCard = (() => {
+    if (!followup) {
+      return null;
+    }
+    const item = followup as unknown as Record<string, unknown>;
+    return {
+      date:
+        (typeof item.date === "string" && item.date.trim()) ||
+        (typeof item.duration === "string" && item.duration.trim()) ||
+        "N/A",
+      reason:
+        (typeof item.reason === "string" && item.reason.trim()) ||
+        "No follow-up reason provided",
+      instructions:
+        (typeof item.instructions === "string" && item.instructions.trim()) ||
+        "No additional instructions",
+      badge:
+        (typeof item.visit_type === "string" && item.visit_type.trim()
+          ? `${item.visit_type} Follow-Up`
+          : "Routine Follow-Up"),
+    };
+  })();
+
+  const retryMedications = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("medications");
+    setRetryErrors((prev) => ({ ...prev, medications: "" }));
+    try {
+      const response = await fetch("/api/medications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+      const data = (await response.json()) as { medication?: unknown[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Medication retry failed");
+      }
+
+      const today = new Date().toLocaleDateString("en-US", {
+        month: "2-digit",
+        day: "2-digit",
+        year: "numeric",
+      });
+
+      const mappedPrescribedMedications = (data.medication || [])
+        .map((item) => {
+          if (typeof item === "string") {
+            return {
+              correct_medicine_name: item,
+              dosage: "",
+              unit: "",
+              frequency: { morning: null, afternoon: null, night: null },
+              start_date: today,
+              days: "",
+              instruction: "",
+            };
+          }
+
+          if (item && typeof item === "object") {
+            const med = item as {
+              correct_medicine_name?: unknown;
+              medicine_name?: unknown;
+              name?: unknown;
+              dosage?: unknown;
+              unit?: unknown;
+              start_date?: unknown;
+              days?: unknown;
+              instruction?: unknown;
+              frequency?: unknown;
+            };
+
+            const rawFreq = med.frequency;
+            const frequency =
+              rawFreq && typeof rawFreq === "object"
+                ? (rawFreq as { morning?: unknown; afternoon?: unknown; night?: unknown })
+                : typeof rawFreq === "string"
+                  ? (() => {
+                      try {
+                        return JSON.parse(rawFreq) as {
+                          morning?: unknown;
+                          afternoon?: unknown;
+                          night?: unknown;
+                        };
+                      } catch {
+                        return {};
+                      }
+                    })()
+                  : {};
+
+            const medicineName =
+              typeof med.correct_medicine_name === "string"
+                ? med.correct_medicine_name
+                : typeof med.medicine_name === "string"
+                  ? med.medicine_name
+                  : typeof med.name === "string"
+                    ? med.name
+                    : "";
+
+            if (!medicineName) {
+              return null;
+            }
+
+            return {
+              correct_medicine_name: medicineName,
+              dosage: typeof med.dosage === "string" ? med.dosage : "",
+              unit: typeof med.unit === "string" ? med.unit : "",
+              frequency: {
+                morning: frequency.morning != null ? String(frequency.morning) : null,
+                afternoon: frequency.afternoon != null ? String(frequency.afternoon) : null,
+                night: frequency.night != null ? String(frequency.night) : null,
+              },
+              start_date:
+                typeof med.start_date === "string" && med.start_date ? med.start_date : today,
+              days: typeof med.days === "string" ? med.days : "",
+              instruction: typeof med.instruction === "string" ? med.instruction : "",
+            };
+          }
+
+          return null;
+        })
+        .filter(
+          (
+            item
+          ): item is {
+            correct_medicine_name: string;
+            dosage: string;
+            unit: string;
+            frequency: { morning: string | null; afternoon: string | null; night: string | null };
+            start_date: string;
+            days: string;
+            instruction: string;
+          } => item !== null
+        );
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          medication: {
+            ...reportData.medication,
+            prescribed_medications: mappedPrescribedMedications,
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        medications: error instanceof Error ? error.message : "Medication retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const retryLabTests = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("labs");
+    setRetryErrors((prev) => ({ ...prev, labs: "" }));
+    try {
+      const response = await fetch("/api/lab-tests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+      const data = (await response.json()) as { lab_test?: unknown[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Lab tests retry failed");
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          labtest: {
+            lab_test: data.lab_test || [],
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        labs: error instanceof Error ? error.message : "Lab tests retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const retryFollowup = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("followup");
+    setRetryErrors((prev) => ({ ...prev, followup: "" }));
+    try {
+      const response = await fetch("/api/follow-ups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+      const data = (await response.json()) as { follow_ups?: unknown[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Follow-up retry failed");
+      }
+
+      const firstFollowUp = (data.follow_ups || [])[0];
+      const mappedFollowUp = (() => {
+        if (!firstFollowUp) {
+          return null;
+        }
+
+        if (typeof firstFollowUp === "string") {
+          return {
+            duration: "",
+            reason: firstFollowUp,
+          };
+        }
+
+        if (typeof firstFollowUp === "object") {
+          const item = firstFollowUp as {
+            duration?: unknown;
+            reason?: unknown;
+            description?: unknown;
+            text?: unknown;
+            date?: unknown;
+          };
+
+          const duration =
+            typeof item.duration === "string"
+              ? item.duration
+              : typeof item.date === "string"
+                ? item.date
+                : "";
+          const reason =
+            typeof item.reason === "string"
+              ? item.reason
+              : typeof item.description === "string"
+                ? item.description
+                : typeof item.text === "string"
+                  ? item.text
+                  : "";
+
+          if (!duration && !reason) {
+            return null;
+          }
+
+          return {
+            duration,
+            reason,
+          };
+        }
+
+        return null;
+      })();
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          followup: {
+            follow_up_appointment: mappedFollowUp,
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        followup: error instanceof Error ? error.message : "Follow-up retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const retryProcedures = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("procedures");
+    setRetryErrors((prev) => ({ ...prev, procedures: "" }));
+    try {
+      const response = await fetch("/api/cpt-pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as {
+        procedures?: Array<{
+          name?: string;
+          reason?: string;
+          procedure_name?: string;
+          clinical_context?: string;
+        }>;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "Procedures retry failed");
+      }
+
+      const mappedProcedures = (data.procedures || [])
+        .map((item) => {
+          const name = item.name || item.procedure_name || "";
+          if (!name.trim()) return null;
+          return {
+            name,
+            reason: item.reason || item.clinical_context || "",
+          };
+        })
+        .filter((item): item is { name: string; reason: string } => item !== null);
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          procedure: {
+            procedure: mappedProcedures,
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        procedures: error instanceof Error ? error.message : "Procedures retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
 
   return (
     <div className="p-3 sm:p-6 space-y-4">
-      {/* Prescribed Medications */}
       <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-        <div className="flex justify-between mb-2">
-          <h3 className="font-medium text-lg text-black">Prescribed Medications</h3>
-          {meds.length === 0 && <RetryButton onClick={() => {}} />}
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-medium text-lg text-black flex items-center gap-2">
+            <Pill className="h-4 w-4 text-slate-400" />
+            Prescribed Medications
+          </h3>
+          {meds.length === 0 && <RetryButton onClick={retryMedications} isLoading={retryingSection === "medications"} />}
         </div>
-        <div className="space-y-3">
-          {meds.length === 0 ? (
-            <div className="text-center p-4 text-slate-500">No medications prescribed</div>
-          ) : (
-            meds.map((med, i) => (
-              <div key={i} className="bg-white p-2 rounded-xl border border-slate-50 shadow-md">
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-6 md:gap-0 items-center">
-                  <div className="font-medium text-base text-black col-span-1">
-                    {med.correct_medicine_name}
+        {!!retryErrors.medications && <p className="text-xs text-rose-600 mb-2">{retryErrors.medications}</p>}
+        {meds.length === 0 ? (
+          <div className="text-center p-4 text-slate-500">No medications prescribed</div>
+        ) : (
+          <div className="space-y-2">
+            {meds.map((med, i) => (
+              <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                  <div className="font-semibold text-sm text-slate-800 col-span-2 md:col-span-1">{med.correct_medicine_name}</div>
+                  <div>
+                    <p className="text-slate-400 text-[11px]">Dosage</p>
+                    <p className="text-slate-700">{med.dosage && med.unit ? `${med.dosage} ${med.unit}` : med.dosage || "N/A"}</p>
                   </div>
-                  <div className="col-span-1">
-                    <p className="text-sm text-slate-500">Dosage</p>
-                    <p className="text-sm">{med.dosage && med.unit ? `${med.dosage} ${med.unit}` : med.dosage || "N/A"}</p>
+                  <div>
+                    <p className="text-slate-400 text-[11px]">Frequency</p>
+                    <p className="text-slate-700">M: {med.frequency.morning ?? "0"}</p>
                   </div>
-                  <div className="col-span-1">
-                    <p className="text-sm text-slate-500">Frequency</p>
-                    <p className="text-sm">
-                      M: {med.frequency.morning ?? "0"}, A: {med.frequency.afternoon ?? "0"}, N: {med.frequency.night ?? "0"}
-                    </p>
+                  <div>
+                    <p className="text-slate-400 text-[11px]">Start Date</p>
+                    <p className="text-slate-700">{med.start_date || "N/A"}</p>
                   </div>
-                  <div className="col-span-1">
-                    <p className="text-sm text-slate-500">Start Date</p>
-                    <p className="text-sm">{med.start_date || "N/A"}</p>
+                  <div>
+                    <p className="text-slate-400 text-[11px]">Duration</p>
+                    <p className="text-slate-700">{med.days ? `${med.days} days` : "N/A"}</p>
                   </div>
-                  <div className="col-span-1">
-                    <p className="text-sm text-slate-500">Duration</p>
-                    <p className="text-sm">{med.days ? `${med.days} days` : "N/A"}</p>
-                  </div>
-                  <div className="col-span-1">
-                    <p className="text-sm text-slate-500">Instructions</p>
-                    <p className="text-sm">{med.instruction || "N/A"}</p>
+                  <div>
+                    <p className="text-slate-400 text-[11px]">Instructions</p>
+                    <p className="text-slate-700">{med.instruction || "N/A"}</p>
                   </div>
                 </div>
               </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* Lab Tests */}
-      <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-        <div className="flex justify-between mb-2">
-          <h3 className="font-medium text-lg text-black">Recommended Lab Tests</h3>
-        </div>
-        <div className="space-y-3">
-          {labs.length === 0 ? (
-            <div className="text-center p-4 text-slate-500">No lab tests recommended</div>
-          ) : (
-            labs.map((lab, i) => (
-              <div key={i} className="bg-white p-2 rounded-xl border border-slate-50 shadow-md">
-                <p className="font-medium text-sm">{lab.name}</p>
-                {lab.reason && <p className="text-sm text-slate-500">{lab.reason}</p>}
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* Procedures */}
-      {procedures.length > 0 && (
-        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-          <h3 className="font-medium text-lg text-black mb-2">Procedures</h3>
-          <div className="space-y-2">
-            {procedures.map((p, i) => (
-              <div key={i} className="bg-white p-2 rounded-xl border border-slate-50 shadow-md">
-                <p className="font-medium text-sm">{p.name}</p>
-                {p.reason && <p className="text-sm text-slate-500">{p.reason}</p>}
-              </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Follow-up */}
-      <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-        <div className="flex items-center gap-2 mb-2">
-          <Calendar className="h-5 w-5 text-brand-orange" />
-          <h3 className="font-medium text-lg text-black">Follow-up Appointment</h3>
-        </div>
-        {!followup ? (
-          <div className="text-center p-4 text-slate-500">No follow-up scheduled</div>
-        ) : (
-          <div className="bg-white p-2 rounded-xl border border-slate-50 shadow-md">
-            <p className="font-medium text-sm">In {followup.duration}</p>
-            <p className="text-sm text-slate-500">{followup.reason}</p>
           </div>
         )}
       </div>
 
-      {/* Vaccines */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-medium text-lg text-black flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-slate-400" />
+              Recommended Lab Tests
+            </h3>
+            {labs.length === 0 && <RetryButton onClick={retryLabTests} isLoading={retryingSection === "labs"} />}
+          </div>
+          {!!retryErrors.labs && <p className="text-xs text-rose-600 mb-2">{retryErrors.labs}</p>}
+          {labs.length === 0 ? (
+            <div className="text-center p-4 text-slate-500">No lab tests recommended</div>
+          ) : (
+            <div className="space-y-2">
+              {labs.map((lab, i) => (
+                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-800">{lab.name}</p>
+                  <p className="text-xs text-slate-400 mt-1">Date</p>
+                  <p className="text-xs text-slate-700">{lab.date}</p>
+                  <p className="text-xs text-slate-400 mt-1">Notes</p>
+                  <p className="text-xs text-slate-700">{lab.notes}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-medium text-lg text-black flex items-center gap-2">
+              <ClipboardCheck className="h-4 w-4 text-slate-400" />
+              Procedures
+            </h3>
+            {procedures.length === 0 && <RetryButton onClick={retryProcedures} isLoading={retryingSection === "procedures"} />}
+          </div>
+          {!!retryErrors.procedures && <p className="text-xs text-rose-600 mb-2">{retryErrors.procedures}</p>}
+          {procedures.length === 0 ? (
+            <div className="text-center p-4 text-slate-500">No procedure information available</div>
+          ) : (
+            <div className="space-y-2">
+              {procedures.map((procedure, i) => (
+                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-800">{procedure.name}</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-600">{procedure.badge}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">Date</p>
+                  <p className="text-xs text-slate-700">{procedure.date}</p>
+                  <p className="text-xs text-slate-400 mt-1">Note</p>
+                  <p className="text-xs text-slate-700">{procedure.notes}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-medium text-lg text-black flex items-center gap-2">
+              <Stethoscope className="h-4 w-4 text-slate-400" />
+              Referrals
+            </h3>
+          </div>
+          {referrals.length === 0 ? (
+            <div className="text-center p-4 text-slate-500">No referrals available</div>
+          ) : (
+            <div className="space-y-2">
+              {referrals.map((referral, i) => (
+                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-slate-800">{referral.specialist}</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">{referral.badge}</span>
+                  </div>
+                  <p className="text-xs text-slate-700 mt-1">Reason: {referral.reason || "N/A"}</p>
+                  <p className="text-xs text-slate-700">Notes: {referral.notes || "N/A"}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-medium text-lg text-black flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-slate-400" />
+              Follow-up Appointment
+            </h3>
+            {!followupCard && <RetryButton onClick={retryFollowup} isLoading={retryingSection === "followup"} />}
+          </div>
+          {!!retryErrors.followup && <p className="text-xs text-rose-600 mb-2">{retryErrors.followup}</p>}
+          {!followupCard ? (
+            <div className="text-center p-4 text-slate-500">No follow-up appointment scheduled</div>
+          ) : (
+            <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-800">{followupCard.date}</p>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">{followupCard.badge}</span>
+              </div>
+              <p className="text-xs text-slate-700 mt-1">Reason: {followupCard.reason}</p>
+              <p className="text-xs text-slate-700">Instructions: {followupCard.instructions}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {vaccines.length > 0 && (
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
           <h3 className="font-medium text-lg text-black mb-2">Vaccines</h3>
@@ -404,20 +1090,15 @@ function OrdersTab() {
         </div>
       )}
 
-      {/* Referrals */}
-      {referrals.length > 0 && (
-        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-          <h3 className="font-medium text-lg text-black mb-2">Referrals</h3>
-          <div className="space-y-2">
-            {(referrals as Array<{ specialist: string; reason?: string }>).map((r, i) => (
-              <div key={i} className="bg-white p-2 rounded-xl border border-slate-50 shadow-md">
-                <p className="font-medium text-sm">{r.specialist}</p>
-                {r.reason && <p className="text-sm text-slate-500">{r.reason}</p>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="flex justify-end items-center gap-2 text-xs text-slate-500 pt-1">
+        <span>Was this helpful?</span>
+        <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
+          <ThumbsUp className="h-3.5 w-3.5" />
+        </button>
+        <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
+          <ThumbsDown className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -426,16 +1107,29 @@ function TranscriptionTab() {
   const transcription = useAppSelector((s) => s.recording.transcription);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
 
+  const speakerRows = transcription
+    .map((line, index) => {
+      const doctorMatch = line.match(/^doctor\s*:\s*(.*)$/i);
+      if (doctorMatch) {
+        return { key: index, speaker: "Doctor", message: doctorMatch[1]?.trim() || "", tone: "doctor" as const };
+      }
+
+      const patientMatch = line.match(/^patient\s*:\s*(.*)$/i);
+      if (patientMatch) {
+        return { key: index, speaker: "Patient", message: patientMatch[1]?.trim() || "", tone: "patient" as const };
+      }
+
+      return { key: index, speaker: "Doctor", message: line, tone: "doctor" as const };
+    })
+    .filter((row) => row.message.length > 0);
+
   return (
     <div className="p-3 sm:p-6">
       <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-medium text-lg text-black">Transcription</h3>
-          <button className="text-xs px-3 h-8 rounded-full border border-slate-200 hover:border-brand-blue hover:text-brand-blue flex items-center gap-1 transition-colors">
-            <Download className="h-3 w-3" />
-            Download
-          </button>
-        </div>
+          <h3 className="font-medium text-lg text-black mb-4 flex items-center gap-2">
+          <FileText className="h-5 w-5 text-slate-500" />
+          Full Conversation
+        </h3>
         <div className="bg-slate-50 rounded-xl p-4 max-h-[60vh] overflow-y-auto border border-slate-100">
           {reportLoading ? (
             <div className="space-y-3">
@@ -443,15 +1137,37 @@ function TranscriptionTab() {
                 <div key={i} className="h-4 bg-slate-200 rounded animate-pulse" />
               ))}
             </div>
-          ) : transcription.length === 0 ? (
+          ) : speakerRows.length === 0 ? (
             <p className="text-slate-400 italic text-center">No transcription available</p>
           ) : (
-            transcription.map((text, i) => (
-              <div key={i} className="mb-3">
-                <p className="leading-relaxed text-sm">{text}</p>
+            speakerRows.map((row) => (
+              <div key={row.key} className="flex items-start gap-3 mb-4">
+                <div
+                  className={`h-9 w-9 rounded-full text-white text-sm font-semibold flex items-center justify-center flex-shrink-0 ${
+                    row.tone === "doctor" ? "bg-brand-blue" : "bg-brand-orange"
+                  }`}
+                >
+                  {row.tone === "doctor" ? "D" : "P"}
+                </div>
+                <div className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+                  <p className={`text-lg font-semibold ${row.tone === "doctor" ? "text-brand-blue" : "text-brand-orange"}`}>
+                    {row.speaker}
+                  </p>
+                  <p className="text-base leading-relaxed text-slate-700">{row.message}</p>
+                </div>
               </div>
             ))
           )}
+        </div>
+
+        <div className="flex justify-end items-center gap-2 text-xs text-slate-500 pt-3">
+          <span>Was this helpful?</span>
+          <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
+            <ThumbsUp className="h-3.5 w-3.5" />
+          </button>
+          <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
+            <ThumbsDown className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
     </div>
@@ -464,6 +1180,7 @@ export function ReportView() {
   const pathname = usePathname();
   const isVisitDetailsRoute = pathname === "/visit-details";
   const { reportData, reportLoading, visitId, transcription } = useAppSelector((s) => s.recording);
+  const transcriptMessage = buildTranscriptMessage(transcription);
   const [showBackWarning, setShowBackWarning] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -631,14 +1348,32 @@ export function ReportView() {
       }
       y += 3;
 
-      const procedures = reportData.procedure.procedure as Array<{ name: string; reason?: string }>;
-      if (procedures.length > 0) {
-        addText("Procedures", 11, true);
-        procedures.forEach((p) =>
-          addText(`${p.name}${p.reason ? ` - ${p.reason}` : ""}`, 10)
-        );
-        y += 3;
+      const procedures = (reportData.procedure.procedure as Array<Record<string, unknown>>)
+        .map((item) => {
+          const name =
+            typeof item.name === "string"
+              ? item.name
+              : typeof item.procedure_name === "string"
+                ? item.procedure_name
+                : "";
+          if (!name.trim()) return null;
+          const reason =
+            typeof item.reason === "string"
+              ? item.reason
+              : typeof item.clinical_context === "string"
+                ? item.clinical_context
+                : "";
+          return { name, reason };
+        })
+        .filter((item): item is { name: string; reason: string } => item !== null);
+
+      addText("Procedures", 11, true);
+      if (procedures.length === 0) {
+        addText("Insufficient content", 10);
+      } else {
+        procedures.forEach((p) => addText(`${p.name}${p.reason ? ` - ${p.reason}` : ""}`, 10));
       }
+      y += 3;
 
       const followup = reportData.followup.follow_up_appointment;
       addText("Follow-up Appointment", 11, true);
@@ -655,12 +1390,30 @@ export function ReportView() {
         y += 3;
       }
 
-      const referrals = reportData.referrals as Array<{ specialist: string; reason?: string }>;
-      if (referrals.length > 0) {
-        addText("Referrals", 11, true);
-        referrals.forEach((r) =>
-          addText(`${r.specialist}${r.reason ? ` - ${r.reason}` : ""}`, 10)
-        );
+      const referrals = (reportData.referrals as Array<Record<string, unknown>>)
+        .map((item) => {
+          const specialist =
+            typeof item.specialist === "string"
+              ? item.specialist
+              : typeof item.name === "string"
+                ? item.name
+                : "";
+          if (!specialist.trim()) return null;
+          const reason =
+            typeof item.reason === "string"
+              ? item.reason
+              : typeof item.clinical_context === "string"
+                ? item.clinical_context
+                : "";
+          return { specialist, reason };
+        })
+        .filter((item): item is { specialist: string; reason: string } => item !== null);
+
+      addText("Referrals", 11, true);
+      if (referrals.length === 0) {
+        addText("Insufficient content", 10);
+      } else {
+        referrals.forEach((r) => addText(`${r.specialist}${r.reason ? ` - ${r.reason}` : ""}`, 10));
       }
 
       // 6. Full Transcription
@@ -789,10 +1542,10 @@ export function ReportView() {
               </div>
 
               <TabsContent value="medical-notes">
-                <MedicalNotesTab />
+                <MedicalNotesTab transcriptMessage={transcriptMessage} />
               </TabsContent>
               <TabsContent value="orders">
-                <OrdersTab />
+                <OrdersTab transcriptMessage={transcriptMessage} />
               </TabsContent>
               <TabsContent value="transcription">
                 <TranscriptionTab />
@@ -804,7 +1557,12 @@ export function ReportView() {
 
       {/* Back Warning Dialog */}
       <Dialog open={showBackWarning} onOpenChange={setShowBackWarning}>
-        <DialogContent className="max-w-md p-6" showClose={false}>
+        <DialogContent
+          className="max-w-md p-6"
+          showClose={false}
+          hiddenTitle="Unsaved changes"
+          hiddenDescription="Warns that going back will discard current visit note edits"
+        >
           <h2 className="text-lg font-semibold text-slate-700 mb-2">Unsaved Changes</h2>
           <p className="text-sm text-slate-600 mb-4">
             You have unsaved changes to the visit notes. Going back will discard these changes.

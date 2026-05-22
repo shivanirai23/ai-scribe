@@ -12,20 +12,20 @@ import {
   stopRecording,
   tickTimer,
   setCurrentView,
-  setRecordingMode,
-  setShowModeWarning,
   setShowQRCode,
   setReportLoading,
   setReportData,
   setConnectionState,
   setSpeechDetected,
   setPendingBufferCount,
+  setTranscription,
 } from "@/store/slices/recordingSlice";
 import { Header, UserProfileSidebar } from "@/components/recording/Header";
 import { AlertBanners } from "@/components/recording/AlertBanners";
 import { RecorderPanel } from "@/components/recording/RecorderPanel";
 import { TranscriptionPanel } from "@/components/recording/TranscriptionPanel";
-import { QRCodeDialog, ModeWarningDialog } from "@/components/recording/Dialogs";
+import { PictureInPicture } from "@/components/recording/PictureInPicture";
+import { QRCodeDialog } from "@/components/recording/Dialogs";
 import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import type { ReportData } from "@/store/slices/recordingSlice";
@@ -130,6 +130,60 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
+}
+
+function normalizeSpeaker(value: string) {
+  const lower = value.trim().toLowerCase();
+  if (lower === "doctor") return "Doctor";
+  if (lower === "patient") return "Patient";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function extractSpeakerLines(payload: unknown): string[] {
+  if (!payload) {
+    return [];
+  }
+
+  if (typeof payload === "string") {
+    try {
+      return extractSpeakerLines(JSON.parse(payload));
+    } catch {
+      return [];
+    }
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.flatMap((item) => extractSpeakerLines(item));
+  }
+
+  if (typeof payload === "object") {
+    const obj = payload as Record<string, unknown>;
+
+    if (Array.isArray(obj.transcript)) {
+      return extractSpeakerLines(obj.transcript);
+    }
+
+    const lines: string[] = [];
+    if (typeof obj.doctor === "string" && obj.doctor.trim()) {
+      lines.push(`Doctor: ${obj.doctor.trim()}`);
+    }
+    if (typeof obj.patient === "string" && obj.patient.trim()) {
+      lines.push(`Patient: ${obj.patient.trim()}`);
+    }
+
+    if (lines.length > 0) {
+      return lines;
+    }
+
+    for (const [speaker, value] of Object.entries(obj)) {
+      if (typeof value === "string" && value.trim()) {
+        lines.push(`${normalizeSpeaker(speaker)}: ${value.trim()}`);
+      }
+    }
+    return lines;
+  }
+
+  return [];
 }
 
 export default function RecordingPage() {
@@ -575,7 +629,42 @@ export default function RecordingPage() {
   const handlePause = () => dispatch(pauseRecording());
   const handleResume = () => dispatch(resumeRecording());
 
-  const generateReportFromMessage = async (message: string) => {
+  const generateReportFromMessage = async (rawMessage: string) => {
+    // First, format the transcription using hikigai-transcription-agent
+    let message = rawMessage;
+    try {
+      const formatterResponse = await fetch("/api/transcription-formatter", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: rawMessage,
+        }),
+      });
+
+      if (formatterResponse.ok) {
+        const formatterData = (await formatterResponse.json()) as {
+          transcription?: unknown;
+          transcript?: unknown;
+        };
+        const formattedPayload = formatterData.transcription ?? formatterData.transcript;
+        const speakerLines = extractSpeakerLines(formattedPayload);
+
+        if (speakerLines.length > 0) {
+          dispatch(setTranscription(speakerLines));
+          message = speakerLines.join("\n");
+          console.log("[generateReport] Formatted transcription lines:", speakerLines);
+        } else if (typeof formatterData.transcription === "string" && formatterData.transcription.trim()) {
+          message = formatterData.transcription;
+          console.log("[generateReport] Formatted transcription:", message);
+        }
+      }
+    } catch (error) {
+      console.error("[generateReport] Transcription formatter error:", error);
+      // Fall back to raw message if formatter fails
+    }
+
     const callAgentRoute = async <T,>(url: string) => {
       try {
         const response = await fetch(url, {
@@ -653,6 +742,7 @@ export default function RecordingPage() {
         }>("/api/medications"),
         callAgentRoute<{
           procedures?: unknown[];
+          cpt_codes?: Array<{ cpt_code: string; name: string }>;
         }>("/api/cpt-pipeline"),
         callAgentRoute<{
           lab_test?: unknown[];
@@ -699,6 +789,7 @@ export default function RecordingPage() {
 
     const cptPipelineData = (cptPipelineResult.data || {}) as {
       procedures?: unknown[];
+      cpt_codes?: Array<{ cpt_code: string; name: string }>;
     };
 
     const labTestData = (labTestResult.data || {}) as {
@@ -829,7 +920,39 @@ export default function RecordingPage() {
       })
       .filter((item): item is ReportData["medication"]["prescribed_medications"][number] => item !== null);
 
-    const mappedProcedures = (cptPipelineData.procedures || []) as unknown[];
+    const mappedProcedures = (cptPipelineData.procedures || [])
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const procedure = item as {
+          name?: unknown;
+          reason?: unknown;
+          procedure_name?: unknown;
+          clinical_context?: unknown;
+        };
+
+        const name =
+          typeof procedure.name === "string"
+            ? procedure.name
+            : typeof procedure.procedure_name === "string"
+              ? procedure.procedure_name
+              : "";
+
+        if (!name.trim()) {
+          return null;
+        }
+
+        return {
+          name,
+          reason:
+            typeof procedure.reason === "string"
+              ? procedure.reason
+              : typeof procedure.clinical_context === "string"
+                ? procedure.clinical_context
+                : "",
+        };
+      })
+      .filter((item): item is { name: string; reason: string } => item !== null);
+    const mappedCptCodes = cptPipelineData.cpt_codes || [];
     const mappedLabTests = (labTestData.lab_test || []) as unknown[];
 
     const failedAgents = [
@@ -864,6 +987,9 @@ export default function RecordingPage() {
         },
         cpt2Codes: {
           codes: mappedCpt2Codes,
+        },
+        cptCodes: {
+          cpt_codes: mappedCptCodes,
         },
         emCodes: {
           em_code: emCodeData.em_code || "",
@@ -923,18 +1049,6 @@ export default function RecordingPage() {
     dispatch(setCurrentView("report"));
   };
 
-  const handleModeToggle = (mode: "normal" | "conversational") => {
-    if (
-      mode === "normal" &&
-      recording.recordingMode === "conversational" &&
-      recording.questionnaireStarted
-    ) {
-      dispatch(setShowModeWarning(true));
-      return;
-    }
-    dispatch(setRecordingMode(mode));
-  };
-
   const handleStartConversation = async () => {
     const message = conversationText.trim();
     if (!message) return;
@@ -970,8 +1084,6 @@ export default function RecordingPage() {
 
       {/* Main content */}
       <main className="container mx-auto pt-2 pb-6 px-6 flex-1 flex flex-col">
-        {/* Mode toggle - hidden, normal mode always active */}
-
         {recording.recordingMode === "conversational" ? (
           <div className="w-full flex-1 flex items-start justify-center">
             <div className="w-full max-w-3xl bg-white rounded-2xl p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.06)] border border-slate-100">
@@ -1031,11 +1143,23 @@ export default function RecordingPage() {
         onClose={() => dispatch(setShowQRCode(false))}
         visitId={recording.visitId}
       />
-      <ModeWarningDialog
-        open={recording.showModeWarning}
-        onClose={() => dispatch(setShowModeWarning(false))}
-      />
 
+      {recording.isRecording && recording.currentView === "recording" && (
+        <PictureInPicture
+          recordingTime={recording.recordingTime}
+          isSpeechDetected={recording.isSpeechDetected}
+          isPaused={recording.isPaused}
+          previewText={liveDraft || recording.transcription[recording.transcription.length - 1] || ""}
+          onPause={() => {
+            if (recording.isPaused) {
+              dispatch(resumeRecording());
+              return;
+            }
+            dispatch(pauseRecording());
+          }}
+          onStop={handleStop}
+        />
+      )}
 
     </div>
   );

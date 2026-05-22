@@ -4,259 +4,400 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
-  ArrowLeft,
-  Brain,
-  Bookmark,
-  BarChart2,
-  GraduationCap,
+  Check,
+  X,
+  AlertCircle,
   User,
   Building2,
   Mail,
   Phone,
+  Brain,
+  Bookmark,
+  BarChart3,
+  GraduationCap,
+  Loader2,
+  ArrowLeft,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useAppSelector } from "@/store/hooks";
+import { cn } from "@/lib/utils";
 
-const COUNTRY_CODES = [
+const countryCodes = [
   { code: "+1", country: "US/CA" },
   { code: "+44", country: "UK" },
   { code: "+91", country: "IN" },
   { code: "+61", country: "AU" },
-  { code: "+49", country: "DE" },
+  { code: "+971", country: "UAE" },
 ];
 
-const FEATURES = [
+const featuresCardsData = [
   {
-    icon: Brain,
     title: "AI-powered clinical decision support",
-    description:
-      "Intelligent recommendations based on patient data and evidence-based medicine",
-    bg: "bg-brandLight-blue",
-    iconBg: "bg-brand-blue/10",
-    iconColor: "text-brand-blue",
+    description: "Intelligent recommendations based on patient data and evidence-based medicine",
+    icon: Brain,
+    color: "bg-brandLight-blue",
   },
   {
-    icon: Bookmark,
     title: "Comprehensive patient dashboard",
-    description:
-      "Complete patient history and visit records in one organized place",
-    bg: "bg-brandLight-pink",
-    iconBg: "bg-brand-pink/10",
-    iconColor: "text-brand-pink",
+    description: "Centralized view of patient history, medications, and care plans",
+    icon: Bookmark,
+    color: "bg-brandLight-pink",
   },
   {
-    icon: BarChart2,
     title: "Advanced analytics and reporting",
-    description:
-      "Deep insights into practice performance and patient outcomes",
-    bg: "bg-brandLight-green",
-    iconBg: "bg-brand-green/10",
-    iconColor: "text-brand-green",
+    description: "Real-time insights into practice performance and patient outcomes",
+    icon: BarChart3,
+    color: "bg-brandLight-green",
   },
   {
-    icon: GraduationCap,
     title: "Multi-device accessibility",
-    description:
-      "Seamlessly use AIScribe across desktop, tablet, and mobile devices",
-    bg: "bg-brandLight-orange",
-    iconBg: "bg-brand-orange/10",
-    iconColor: "text-brand-orange",
+    description: "Access from any device with secure cloud-based platform",
+    icon: GraduationCap,
+    color: "bg-brandLight-orange",
   },
 ];
+
+interface FormData {
+  fullName: string;
+  clinicalName: string;
+  workEmail: string;
+  countryCode: string;
+  phoneNumber: string;
+}
 
 export default function PricingPage() {
   const router = useRouter();
-  const [fullName, setFullName] = useState("");
-  const [organization, setOrganization] = useState("");
-  const [workEmail, setWorkEmail] = useState("");
-  const [countryCode, setCountryCode] = useState("+1");
-  const [phone, setPhone] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const user = useAppSelector((state) => state.user);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  let extractedCountryCode = "+1";
+  if (user.phone) {
+    const matchingCountry = countryCodes.find((country) => user.phone.startsWith(country.code));
+    extractedCountryCode = matchingCountry ? matchingCountry.code : "+1";
+  }
+
+  const derivedFormData: FormData = {
+    fullName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+    clinicalName: user.clinicName || "",
+    workEmail: user.email || "",
+    countryCode: extractedCountryCode,
+    phoneNumber: user.phone
+      ? user.phone.replace(extractedCountryCode, "").replace(/\D/g, "")
+      : "",
+  };
+
+  const [formData, setFormData] = useState<FormData | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const activeFormData = formData ?? derivedFormData;
+
+  const handleInputChange = (field: keyof FormData, value: string) => {
+    setFormData((prev) => ({ ...(prev ?? derivedFormData), [field]: value }));
+  };
+
+  const getValidCountryCode = (code: string) => {
+    const isValidCode = countryCodes.some((country) => country.code === code);
+    return isValidCode ? code : "+1";
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (
+      !activeFormData.fullName ||
+      !activeFormData.clinicalName ||
+      !activeFormData.workEmail ||
+      !activeFormData.phoneNumber
+    ) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const response = await fetch("/api/bland-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone_number: `${activeFormData.countryCode}${activeFormData.phoneNumber}`,
+          request_data: {
+            email: activeFormData.workEmail,
+            name: activeFormData.fullName,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        toast.success("Thank you! We will call you shortly.", {
+          duration: 5000,
+          style: { background: "#e8f3da" },
+        });
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        toast.error(errorData.message || "Failed to submit request. Please try again.", {
+          duration: 5000,
+          style: { background: "#f3dada" },
+        });
+      }
+    } catch {
+      toast.error("Network error. Please check your connection and try again.", {
+        duration: 5000,
+        style: { background: "#f3dada" },
+      });
+    } finally {
       setIsSubmitting(false);
-      setSubmitted(true);
-    }, 800);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header */}
+    <div className="min-h-screen bg-background">
       <header className="bg-white border-b border-slate-100 py-4 px-6 flex justify-between items-center sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center">
           <Image
             src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-3iYmNCbNrAz3xweW1kCvDFAA44QRiG.png"
             alt="HIKIGAI AIScribe Logo"
             width={36}
             height={36}
-            unoptimized
+            className="mr-3"
+            priority
           />
-          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-brand-gradient">
+          <h1 className="text-xl font-bold bg-clip-text text-transparent bg-brand-gradient cursor-default">
             HIKIGAI AIScribe
           </h1>
         </div>
+
         <button
+          type="button"
+          className="bg-brandLight-blue text-black rounded-full hover:bg-brand-blue hover:text-white absolute left-6 top-20 border border-slate-200 h-10 w-10 flex items-center justify-center"
           onClick={() => router.back()}
-          className="flex items-center gap-2 text-slate-600 hover:text-brand-blue text-sm transition-colors"
         >
-          <ArrowLeft className="h-4 w-4" />
-          Back
+          <ArrowLeft className="w-4 h-4" />
         </button>
       </header>
 
-      {/* Main */}
-      <main className="container mx-auto px-4 sm:px-6 py-8 lg:py-12">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start">
-          {/* Left: Feature cards */}
-          <div>
-            <h1 className="text-3xl font-bold text-slate-800 mb-2">Upgrade to Premium</h1>
-            <p className="text-slate-600 mb-8">
-              Unlock the full power of HIKIGAI AIScribe
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {FEATURES.map((feature) => {
-                const Icon = feature.icon;
-                return (
-                  <div
-                    key={feature.title}
-                    className={`p-4 rounded-xl ${feature.bg} flex items-start gap-3`}
-                  >
-                    <div className={`${feature.iconBg} p-2 rounded-lg`}>
-                      <Icon className={`h-5 w-5 ${feature.iconColor}`} />
+      <main className="max-w-6xl mx-auto px-6 py-12">
+        <div className="text-center mb-16">
+          <h1 className="text-4xl font-bold leading-normal mb-2">
+            <span className="bg-clip-text text-transparent bg-brand-gradient cursor-default">
+              Upgrade to Hikigai CarePilot
+            </span>
+          </h1>
+          <p className="text-xl text-muted-foreground mb-12">
+            Take your HIKIGAI AIScribe experience to the next level.
+          </p>
+
+          <div className="grid md:grid-cols-2 gap-8 items-start mb-16">
+            <div className="relative">
+              <div className="aspect-video bg-gradient-to-br from-orange-100 to-orange-200 rounded-lg overflow-hidden relative">
+                <video
+                  src="https://storage.googleapis.com/hikigai-video-assets/Launchpad%20EHR%20with%20CarePilot.mp4"
+                  controls
+                  muted
+                  loop
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute top-4 left-4 bg-orange-600 text-white rounded-full px-2 py-1 text-xs">
+                  CarePilot
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-4 text-left">
+                Intelligent web platform to empower healthcare professionals with AI-powered
+                clinical decision support, patient management tools, and advanced analytics for
+                improved care delivery.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {featuresCardsData.map((feature) => (
+                <div key={feature.title} className={cn("border-none py-4 rounded-xl", feature.color)}>
+                  <div className="px-4 flex items-start gap-6 h-full">
+                    <div className="flex items-center justify-center h-full self-center ml-2">
+                      <feature.icon className="w-6 h-6 text-black" />
                     </div>
-                    <div>
-                      <h3 className="font-medium text-sm text-slate-800">{feature.title}</h3>
-                      <p className="text-xs text-slate-500 mt-1">{feature.description}</p>
+                    <div className="text-left">
+                      <h3 className="font-semibold text-black mb-1">{feature.title}</h3>
+                      <p className="text-sm text-gray-600">{feature.description}</p>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </div>
+        </div>
 
-          {/* Right: Contact form */}
-          <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-6 sm:p-8">
-            <h2 className="text-xl font-bold text-slate-800 mb-1">Get Premium Access</h2>
-            <p className="text-slate-500 text-sm mb-6">
-              Fill in your details and we&apos;ll call you to discuss pricing
+        <section className="mb-14">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold mb-4">Why Upgrade?</h2>
+            <p className="text-lg text-muted-foreground max-w-4xl mx-auto">
+              HIKIGAI AIScribe saves you time by transcribing doctor-patient conversations and
+              generating clinical notes. But with <span className="bg-clip-text text-transparent bg-brand-gradient font-semibold whitespace-nowrap">CarePilot</span>, you unlock <span className="bg-clip-text text-transparent bg-brand-gradient font-semibold whitespace-nowrap">end-to-end automation</span> from pre-visit insights to seamless <span className="bg-clip-text text-transparent bg-brand-gradient font-semibold whitespace-nowrap">EHR integration</span>. CarePilot is more than a scribe. It is your intelligent clinical assistant.
             </p>
+          </div>
 
-            {submitted ? (
-              <div className="text-center py-8">
-                <div className="h-16 w-16 rounded-full bg-brandLight-green flex items-center justify-center mx-auto mb-4">
-                  <svg className="h-8 w-8 text-brand-green" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+          <div className="grid md:grid-cols-2 gap-6 max-w-5xl mx-auto">
+            <div className="relative bg-white rounded-xl border border-slate-200">
+              <div className="p-6">
+                <div className="text-center mb-6">
+                  <h3 className="text-2xl font-bold mb-2">HIKIGAI AIScribe (Free)</h3>
+                  <span className="text-slate-500 border border-slate-300 bg-transparent py-1 px-6 rounded-full text-xs">
+                    Your Current Plan
+                  </span>
                 </div>
-                <h3 className="text-lg font-semibold text-slate-800 mb-2">
-                  Thank you for your interest!
-                </h3>
-                <p className="text-slate-600 text-sm">
-                  We&apos;ll be in touch shortly to discuss premium pricing options tailored to your
-                  practice.
-                </p>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3"><AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" /><span className="text-sm">Limited to 2500 consultation minutes</span></div>
+                  <div className="flex items-center gap-3"><X className="w-5 h-5 text-red-500 flex-shrink-0" /><span className="text-sm">Cannot connect to external EHRs</span></div>
+                  <div className="flex items-center gap-3"><AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" /><span className="text-sm">Manual copy-paste notes into EHR</span></div>
+                  <div className="flex items-center gap-3"><X className="w-5 h-5 text-red-500 flex-shrink-0" /><span className="text-sm">No Patient Prep available</span></div>
+                  <div className="flex items-center gap-3"><X className="w-5 h-5 text-red-500 flex-shrink-0" /><span className="text-sm">No built-in chatbot</span></div>
+                  <div className="flex items-center gap-3"><X className="w-5 h-5 text-red-500 flex-shrink-0" /><span className="text-sm">Does not show Alerts</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-sm">Saves you ~1 hour/day</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-sm">Generates Structured Medical Notes</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-500 flex-shrink-0" /><span className="text-sm">Captures medications as mentioned</span></div>
+                </div>
               </div>
-            ) : (
+            </div>
+
+            <div className="relative bg-green-50 border-green-200 rounded-xl border">
+              <div className="p-6">
+                <div className="text-center mb-6">
+                  <h3 className="text-2xl font-bold mb-2">CarePilot</h3>
+                  <span className="text-black border border-green-600 bg-transparent py-1 px-6 rounded-full text-xs">
+                    Premium Version
+                  </span>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Unlimited consultations - no limits.</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Works with any EHR system</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Notes are auto-synced to your EHR - no extra steps</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Shows patient prep insights + medical history</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Includes a Medical Assistant Chatbot</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Flags Clinical and Preventive Alerts</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Saves you ~2+ hours/day</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Generates Structured Medical Notes + Suggest Differential Diagnosis</span></div>
+                  <div className="flex items-center gap-3"><Check className="w-5 h-5 text-green-600 flex-shrink-0" /><span className="text-sm font-medium">Captures medications as mentioned + flags adverse reactions</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="max-w-md mx-auto">
+          <div className="text-center mb-10">
+            <h2 className="text-2xl font-bold mb-2">Contact Me</h2>
+            <p className="text-muted-foreground">Have questions about Hikigai CarePilot?</p>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200">
+            <div className="px-6 py-0 pb-4">
               <form className="space-y-4" onSubmit={handleSubmit}>
-                {/* Full Name */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Full Name</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <div>
+                  <label htmlFor="fullName" className="text-sm font-medium text-slate-700">Full Name*</label>
+                  <div className="relative mt-1">
+                    <User className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
                     <input
-                      type="text"
-                      placeholder="Dr. John Doe"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      required
-                      className="pl-10 h-12 rounded-xl border border-slate-200 w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
+                      id="fullName"
+                      placeholder="Enter your full name"
+                      className="pl-10 h-10 rounded-xl border border-slate-200 w-full text-sm"
+                      value={activeFormData.fullName}
+                      onChange={(e) => handleInputChange("fullName", e.target.value)}
+                      disabled={isSubmitting}
                     />
                   </div>
                 </div>
 
-                {/* Organization */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">
-                    Clinic / Organization Name
-                  </label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <div>
+                  <label htmlFor="clinicalName" className="text-sm font-medium text-slate-700">Clinical Name*</label>
+                  <div className="relative mt-1">
+                    <Building2 className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
                     <input
-                      type="text"
-                      placeholder="Sunrise Health Clinic"
-                      value={organization}
-                      onChange={(e) => setOrganization(e.target.value)}
-                      required
-                      className="pl-10 h-12 rounded-xl border border-slate-200 w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
+                      id="clinicalName"
+                      placeholder="Enter your clinic name"
+                      className="pl-10 h-10 rounded-xl border border-slate-200 w-full text-sm"
+                      value={activeFormData.clinicalName}
+                      onChange={(e) => handleInputChange("clinicalName", e.target.value)}
+                      disabled={isSubmitting}
                     />
                   </div>
                 </div>
 
-                {/* Work Email */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Work Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <div>
+                  <label htmlFor="workEmail" className="text-sm font-medium text-slate-700">Work Email*</label>
+                  <div className="relative mt-1">
+                    <Mail className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
                     <input
+                      id="workEmail"
                       type="email"
-                      placeholder="name@clinic.com"
-                      value={workEmail}
-                      onChange={(e) => setWorkEmail(e.target.value)}
-                      required
-                      className="pl-10 h-12 rounded-xl border border-slate-200 w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
+                      placeholder="Enter your work email"
+                      className="pl-10 h-10 rounded-xl border border-slate-200 w-full text-sm"
+                      value={activeFormData.workEmail}
+                      onChange={(e) => handleInputChange("workEmail", e.target.value)}
+                      disabled={isSubmitting}
                     />
                   </div>
                 </div>
 
-                {/* Phone */}
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Phone</label>
-                  <div className="flex gap-2">
-                    <div className="w-1/3">
-                      <Select value={countryCode} onValueChange={setCountryCode}>
-                        <SelectTrigger className="!h-12">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {COUNTRY_CODES.map((c) => (
-                            <SelectItem key={c.code} value={c.code}>
-                              {c.code} ({c.country})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="relative w-2/3">
-                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <div>
+                  <label htmlFor="phoneNumber" className="text-sm font-medium text-slate-700">Phone Number*</label>
+                  <div className="flex gap-2 mt-1">
+                    <Select
+                      value={getValidCountryCode(activeFormData.countryCode)}
+                      onValueChange={(value) => value.length && handleInputChange("countryCode", value)}
+                      disabled={isSubmitting}
+                    >
+                      <SelectTrigger className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {countryCodes.map((country) => (
+                          <SelectItem key={country.code} value={country.code}>
+                            {country.code} {country.country}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
                       <input
-                        type="tel"
-                        placeholder="Phone Number"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+                        id="phoneNumber"
+                        placeholder="Enter your phone number"
+                        className="pl-10 h-10 rounded-xl border border-slate-200 w-full text-sm"
                         required
-                        className="pl-10 h-12 rounded-xl border border-slate-200 w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue"
+                        value={activeFormData.phoneNumber}
+                        onChange={(e) => handleInputChange("phoneNumber", e.target.value.replace(/\D/g, ""))}
+                        disabled={isSubmitting}
                       />
                     </div>
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full h-12 bg-brand-blue hover:bg-brand-pink text-white rounded-xl text-base font-medium transition-all flex items-center justify-center"
-                >
-                  {isSubmitting && (
-                    <div className="mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  )}
-                  Get Premium — We&apos;ll Call You
-                </button>
+                <div className="pt-4">
+                  <div className="relative group">
+                    <div className="absolute -inset-0.5 bg-brand-gradient rounded-xl blur opacity-10 group-hover:opacity-100 transition duration-1000 group-hover:duration-200" />
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="relative w-full h-10 bg-brandLight-blue text-black hover:text-white hover:bg-brand-blue rounded-xl text-base font-medium text-sm leading-none transition-all duration-300 border-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          CALLING...
+                        </>
+                      ) : (
+                        <>
+                          <Phone className="w-4 h-4 mr-2" fill="currentColor" />
+                          CALL ME
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </form>
-            )}
+            </div>
           </div>
-        </div>
+        </section>
       </main>
     </div>
   );
