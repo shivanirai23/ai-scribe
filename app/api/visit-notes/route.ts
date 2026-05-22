@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
     const input = body.speciality?.trim()
       ? { message, speciality: body.speciality.trim() }
-      : { message };
+      : { message, speciality: "general" };
 
     const agentResponse = await hikigai.invokeAgent("visit-notes-agent", input);
     console.log("\n [visit-notes-agent] raw invoke output:", JSON.stringify(agentResponse));

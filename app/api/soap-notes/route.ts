@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       : { message };
 
     const agentResponse = await hikigai.invokeAgent("soap-notes-agent", input);
-    console.log("[soap-notes-agent] raw invoke output:", JSON.stringify(agentResponse));
+    // console.log("[soap-notes-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const output = normalizeSoapOutput(agentResponse);
 

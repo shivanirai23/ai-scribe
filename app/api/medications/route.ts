@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     }
 
     const agentResponse = await hikigai.invokeAgent("medication-agent", { message });
-    console.log("[medication-agent] raw invoke output:", JSON.stringify(agentResponse));
+    // console.log("[medication-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const medication = normalizeMedication(agentResponse);
     return NextResponse.json({ medication }, { status: 200 });

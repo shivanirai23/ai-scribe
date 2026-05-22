@@ -6,6 +6,7 @@ import { Eye } from "lucide-react";
 
 interface TranscriptionPanelProps {
   transcription: string[];
+  liveDraft?: string;
   isRecording: boolean;
   isPaused: boolean;
   hasVisit: boolean;
@@ -14,6 +15,7 @@ interface TranscriptionPanelProps {
 
 export function TranscriptionPanel({
   transcription,
+  liveDraft,
   isRecording,
   isPaused,
   hasVisit,
@@ -72,6 +74,17 @@ export function TranscriptionPanel({
                   <p className="leading-relaxed text-sm">{text}</p>
                 </motion.div>
               ))}
+              {!!liveDraft && (
+                <motion.div
+                  key="live-draft"
+                  initial={{ opacity: 0.5 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.25 }}
+                  className="mb-3"
+                >
+                  <p className="leading-relaxed text-sm text-slate-500 italic">{liveDraft}</p>
+                </motion.div>
+              )}
             </AnimatePresence>
             {isRecording && !isPaused && (
               <motion.span

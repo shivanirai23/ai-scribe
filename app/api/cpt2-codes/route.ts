@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     }
 
     const agentResponse = await hikigai.invokeAgent("cpt2-code-agent", { message });
-    console.log("[cpt2-code-agent] raw invoke output:", JSON.stringify(agentResponse));
+    // console.log("[cpt2-code-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const codes = normalizeCpt2Codes(agentResponse);
     return NextResponse.json({ codes }, { status: 200 });

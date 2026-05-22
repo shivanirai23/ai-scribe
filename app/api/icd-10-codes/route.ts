@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     }
 
     const agentResponse = await hikigai.invokeAgent("icd-10-code-agent", { message });
-    console.log("[icd-10-code-agent] raw invoke output:", JSON.stringify(agentResponse));
+    // console.log("[icd-10-code-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const icd_codes = normalizeIcdCodes(agentResponse);
     return NextResponse.json({ icd_codes }, { status: 200 });

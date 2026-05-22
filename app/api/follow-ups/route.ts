@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       message,
       current_date,
     });
-    console.log("[follow-up-agent] raw invoke output:", JSON.stringify(agentResponse));
+    // console.log("[follow-up-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const follow_ups = normalizeFollowUps(agentResponse);
     return NextResponse.json({ follow_ups }, { status: 200 });

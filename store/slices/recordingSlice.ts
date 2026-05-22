@@ -39,6 +39,11 @@ export interface RecordingState {
   showPremiumBanner: boolean;
 }
 
+interface ConnectionStatePayload {
+  isConnected: boolean;
+  isConnecting: boolean;
+}
+
 export interface ReportData {
   visitNotes: string[];
   soapNote: {
@@ -103,7 +108,8 @@ const recordingSlice = createSlice({
   reducers: {
     startVisit(state, action: PayloadAction<string>) {
       state.visitId = action.payload;
-      state.isConnected = true;
+      state.isConnected = false;
+      state.isConnecting = false;
       state.currentView = "recording";
       state.transcription = [];
       state.reportData = null;
@@ -183,6 +189,10 @@ const recordingSlice = createSlice({
     setPendingBufferCount(state, action: PayloadAction<number>) {
       state.pendingBufferCount = action.payload;
     },
+    setConnectionState(state, action: PayloadAction<ConnectionStatePayload>) {
+      state.isConnected = action.payload.isConnected;
+      state.isConnecting = action.payload.isConnecting;
+    },
     updateVisitNote(state, action: PayloadAction<string>) {
       if (state.reportData) {
         state.reportData.visitNotes[0] = action.payload;
@@ -216,6 +226,7 @@ export const {
   setRecordingAnswer,
   setAnswerPaused,
   setPendingBufferCount,
+  setConnectionState,
   updateVisitNote,
 } = recordingSlice.actions;
 

@@ -81,8 +81,8 @@ function MedicalNotesTab() {
   return (
     <div className="p-3 sm:p-6 space-y-4">
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-        {/* Visit Summary */}
-        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] flex flex-col max-h-[60vh] overflow-hidden">
+        {/* Visit Summary — hidden during loading */}
+        {!reportLoading && <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] flex flex-col max-h-[60vh] overflow-hidden">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">Visit Summary</h3>
             <div className="flex gap-2">
@@ -128,7 +128,7 @@ function MedicalNotesTab() {
               )}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* SOAP Notes */}
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] flex flex-col overflow-hidden max-h-[60vh]">
@@ -141,9 +141,7 @@ function MedicalNotesTab() {
           <div className="space-y-3 overflow-y-auto flex-1">
             {soapSections.map(({ key, label }) => {
               const section = reportData.soapNote[key];
-              const text = Object.entries(section)
-                .map(([k, v]) => (k ? `${k}: ${v}` : `${v}`))
-                .join("\n");
+              const text = Object.values(section).join("\n");
               const isExpanded = expandedSoap[key];
               const canToggle = text.trim().length > 180;
               return (
@@ -315,25 +313,25 @@ function OrdersTab() {
                   </div>
                   <div className="col-span-1">
                     <p className="text-sm text-slate-500">Dosage</p>
-                    <p className="text-sm">{med.dosage} {med.unit}</p>
+                    <p className="text-sm">{med.dosage && med.unit ? `${med.dosage} ${med.unit}` : med.dosage || "N/A"}</p>
                   </div>
                   <div className="col-span-1">
                     <p className="text-sm text-slate-500">Frequency</p>
                     <p className="text-sm">
-                      M: {med.frequency.morning || "0"}, A: {med.frequency.afternoon || "0"}, N: {med.frequency.night || "0"}
+                      M: {med.frequency.morning ?? "0"}, A: {med.frequency.afternoon ?? "0"}, N: {med.frequency.night ?? "0"}
                     </p>
                   </div>
                   <div className="col-span-1">
                     <p className="text-sm text-slate-500">Start Date</p>
-                    <p className="text-sm">{med.start_date}</p>
+                    <p className="text-sm">{med.start_date || "N/A"}</p>
                   </div>
                   <div className="col-span-1">
                     <p className="text-sm text-slate-500">Duration</p>
-                    <p className="text-sm">{med.days} days</p>
+                    <p className="text-sm">{med.days ? `${med.days} days` : "N/A"}</p>
                   </div>
                   <div className="col-span-1">
                     <p className="text-sm text-slate-500">Instructions</p>
-                    <p className="text-sm">{med.instruction}</p>
+                    <p className="text-sm">{med.instruction || "N/A"}</p>
                   </div>
                 </div>
               </div>

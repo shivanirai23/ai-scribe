@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     }
 
     const agentResponse = await hikigai.invokeAgent("em-code-agent", { message });
-    console.log("[em-code-agent] raw invoke output:", JSON.stringify(agentResponse));
+    // console.log("[em-code-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     return NextResponse.json(normalizeEmCode(agentResponse), { status: 200 });
   } catch (error) {

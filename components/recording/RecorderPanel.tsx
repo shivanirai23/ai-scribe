@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { motion } from "framer-motion";
 import { Mic, Play, Pause } from "lucide-react";
 import { formatTime } from "@/lib/utils";
@@ -13,7 +12,6 @@ interface RecorderPanelProps {
   isConnected: boolean;
   isConnecting: boolean;
   recordingTime: number;
-  pendingBufferCount: number;
   onStartVisit: () => void;
   onStartRecording: () => void;
   onPause: () => void;
@@ -29,7 +27,6 @@ export function RecorderPanel({
   isConnected,
   isConnecting,
   recordingTime,
-  pendingBufferCount,
   onStartVisit,
   onStartRecording,
   onPause,
@@ -131,13 +128,20 @@ export function RecorderPanel({
 
         {/* Buttons */}
         {!isRecording ? (
-          <button
-            onClick={onStartRecording}
-            disabled={isConnecting || !isConnected}
-            className="bg-brand-green hover:bg-opacity-90 disabled:opacity-50 text-white rounded-xl px-6 py-3 text-base font-medium shadow-md hover:shadow-lg transition-all"
-          >
-            Start Recording
-          </button>
+          isConnected ? (
+            <button
+              onClick={onStartRecording}
+              className="bg-brand-green hover:bg-opacity-90 text-white rounded-xl px-6 py-3 text-base font-medium shadow-md hover:shadow-lg transition-all"
+            >
+              Start Recording
+            </button>
+          ) : (
+            <div className="text-sm text-slate-500">
+              {isConnecting
+                ? "Preparing live transcription socket..."
+                : "Socket not connected. Please start visit again."}
+            </div>
+          )
         ) : (
           <div className="flex space-x-4">
             <button
@@ -166,12 +170,7 @@ export function RecorderPanel({
           </div>
         )}
 
-        {/* Buffer info */}
-        {pendingBufferCount > 0 && (
-          <div className="mt-2 text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-md">
-            Buffering audio chunks: {pendingBufferCount} pending
-          </div>
-        )}
+
       </div>
     </div>
   );
