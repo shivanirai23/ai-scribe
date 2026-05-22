@@ -72,26 +72,11 @@ export function RecorderPanel({
       : "bg-brand-pink"
     : "bg-brand-green";
 
-  const pulseBgColor = isPaused
-    ? "bg-brand-orange"
-    : isSpeechDetected
-      ? "bg-brand-green"
-      : "bg-brand-pink";
-
   return (
     <div className="bg-white rounded-2xl p-6 flex justify-center items-center shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
       <div className="flex flex-col items-center h-full">
         {/* Mic circle with pulse */}
         <div className="relative mb-8">
-          {isRecording && (
-            <motion.div
-              className="absolute -inset-6"
-              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0.2, 0.5] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              <div className={`absolute inset-0 rounded-full ${pulseBgColor} opacity-60`} />
-            </motion.div>
-          )}
           <div
             className={`h-28 w-28 rounded-full ${micBgColor} flex items-center justify-center shadow-lg relative z-10`}
           >

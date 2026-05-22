@@ -707,7 +707,7 @@ export default function RecordingPage() {
       year: "numeric",
     });
 
-    const [visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, cptPipelineResult, labTestResult] =
+    const [visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult] =
       await Promise.all([
         callAgentRoute<{
           visit_notes?: string[];
@@ -740,6 +740,13 @@ export default function RecordingPage() {
         callAgentRoute<{
           medication?: unknown[];
         }>("/api/medications"),
+        callAgentRoute<{
+          procedure?: unknown[];
+          procedures?: unknown[];
+        }>("/api/procedures"),
+        callAgentRoute<{
+          referrals?: unknown[];
+        }>("/api/referrals"),
         callAgentRoute<{
           procedures?: unknown[];
           cpt_codes?: Array<{ cpt_code: string; name: string }>;
@@ -785,6 +792,15 @@ export default function RecordingPage() {
 
     const medicationData = (medicationResult.data || {}) as {
       medication?: unknown[];
+    };
+
+    const procedureData = (procedureResult.data || {}) as {
+      procedure?: unknown[];
+      procedures?: unknown[];
+    };
+
+    const referralData = (referralResult.data || {}) as {
+      referrals?: unknown[];
     };
 
     const cptPipelineData = (cptPipelineResult.data || {}) as {
@@ -920,7 +936,9 @@ export default function RecordingPage() {
       })
       .filter((item): item is ReportData["medication"]["prescribed_medications"][number] => item !== null);
 
-    const mappedProcedures = (cptPipelineData.procedures || [])
+    const mappedProcedures = (
+      procedureData.procedure || procedureData.procedures || cptPipelineData.procedures || []
+    )
       .map((item) => {
         if (!item || typeof item !== "object") return null;
         const procedure = item as {
@@ -952,6 +970,68 @@ export default function RecordingPage() {
         };
       })
       .filter((item): item is { name: string; reason: string } => item !== null);
+
+    const mappedReferrals = (referralData.referrals || [])
+      .map((item) => {
+        if (typeof item === "string") {
+          return {
+            name: item,
+            reason: "",
+            notes: "",
+            type: "routine",
+          };
+        }
+
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const referral = item as {
+          specialist?: unknown;
+          specialty?: unknown;
+          provider?: unknown;
+          name?: unknown;
+          reason?: unknown;
+          clinical_context?: unknown;
+          notes?: unknown;
+          type?: unknown;
+          urgency?: unknown;
+        };
+
+        const name =
+          typeof referral.specialist === "string"
+            ? referral.specialist
+            : typeof referral.specialty === "string"
+              ? referral.specialty
+              : typeof referral.provider === "string"
+                ? referral.provider
+                : typeof referral.name === "string"
+                  ? referral.name
+                  : "";
+
+        if (!name.trim()) {
+          return null;
+        }
+
+        return {
+          name,
+          reason:
+            typeof referral.reason === "string"
+              ? referral.reason
+              : typeof referral.clinical_context === "string"
+                ? referral.clinical_context
+                : "",
+          notes: typeof referral.notes === "string" ? referral.notes : "",
+          type:
+            typeof referral.type === "string"
+              ? referral.type
+              : typeof referral.urgency === "string"
+                ? referral.urgency
+                : "routine",
+        };
+      })
+      .filter((item): item is { name: string; reason: string; notes: string; type: string } => item !== null);
+
     const mappedCptCodes = cptPipelineData.cpt_codes || [];
     const mappedLabTests = (labTestData.lab_test || []) as unknown[];
 
@@ -963,6 +1043,8 @@ export default function RecordingPage() {
       followUpResult.ok ? null : `Follow-up: ${followUpResult.error}`,
       emCodeResult.ok ? null : `E&M: ${emCodeResult.error}`,
       medicationResult.ok ? null : `Medication: ${medicationResult.error}`,
+      procedureResult.ok ? null : `Procedures: ${procedureResult.error}`,
+      referralResult.ok ? null : `Referrals: ${referralResult.error}`,
       cptPipelineResult.ok ? null : `CPT pipeline: ${cptPipelineResult.error}`,
       labTestResult.ok ? null : `Lab tests: ${labTestResult.error}`,
     ].filter((item): item is string => item !== null);
@@ -1005,6 +1087,7 @@ export default function RecordingPage() {
         procedure: {
           procedure: mappedProcedures,
         },
+        referrals: mappedReferrals,
         labtest: {
           lab_test: mappedLabTests,
         },

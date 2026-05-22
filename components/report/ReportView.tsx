@@ -505,7 +505,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
-  const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | null>(null);
+  const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | "referrals" | null>(null);
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
 
   if (reportLoading) {
@@ -875,19 +875,15 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("procedures");
     setRetryErrors((prev) => ({ ...prev, procedures: "" }));
     try {
-      const response = await fetch("/api/cpt-pipeline", {
+      const response = await fetch("/api/procedures", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
       });
 
       const data = (await response.json()) as {
-        procedures?: Array<{
-          name?: string;
-          reason?: string;
-          procedure_name?: string;
-          clinical_context?: string;
-        }>;
+        procedure?: unknown[];
+        procedures?: unknown[];
         error?: string;
       };
 
@@ -895,22 +891,11 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         throw new Error(data.error || "Procedures retry failed");
       }
 
-      const mappedProcedures = (data.procedures || [])
-        .map((item) => {
-          const name = item.name || item.procedure_name || "";
-          if (!name.trim()) return null;
-          return {
-            name,
-            reason: item.reason || item.clinical_context || "",
-          };
-        })
-        .filter((item): item is { name: string; reason: string } => item !== null);
-
       dispatch(
         setReportData({
           ...reportData,
           procedure: {
-            procedure: mappedProcedures,
+            procedure: data.procedure || data.procedures || [],
           },
         })
       );
@@ -918,6 +903,37 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       setRetryErrors((prev) => ({
         ...prev,
         procedures: error instanceof Error ? error.message : "Procedures retry failed",
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
+  const retryReferrals = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("referrals");
+    setRetryErrors((prev) => ({ ...prev, referrals: "" }));
+    try {
+      const response = await fetch("/api/referrals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+      const data = (await response.json()) as { referrals?: unknown[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Referrals retry failed");
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          referrals: data.referrals || [],
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        referrals: error instanceof Error ? error.message : "Referrals retry failed",
       }));
     } finally {
       setRetryingSection(null);
@@ -1034,7 +1050,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
               <Stethoscope className="h-4 w-4 text-slate-400" />
               Referrals
             </h3>
+            {referrals.length === 0 && <RetryButton onClick={retryReferrals} isLoading={retryingSection === "referrals"} />}
           </div>
+          {!!retryErrors.referrals && <p className="text-xs text-rose-600 mb-2">{retryErrors.referrals}</p>}
           {referrals.length === 0 ? (
             <div className="text-center p-4 text-slate-500">No referrals available</div>
           ) : (
