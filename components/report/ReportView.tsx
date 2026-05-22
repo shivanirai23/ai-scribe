@@ -957,27 +957,27 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
           <div className="space-y-2">
             {meds.map((med, i) => (
               <div key={i} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
-                  <div className="font-semibold text-sm text-slate-800 col-span-2 md:col-span-1">{med.correct_medicine_name}</div>
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                  <div className="font-bold text-sm text-slate-900 col-span-2 md:col-span-1">{med.correct_medicine_name}</div>
                   <div>
-                    <p className="text-slate-400 text-[11px]">Dosage</p>
-                    <p className="text-slate-700">{med.dosage && med.unit ? `${med.dosage} ${med.unit}` : med.dosage || "N/A"}</p>
+                    <p className="text-sm font-semibold text-slate-600">Dosage</p>
+                    <p className="text-sm text-slate-800">{med.dosage && med.unit ? `${med.dosage} ${med.unit}` : med.dosage || "N/A"}</p>
                   </div>
                   <div>
-                    <p className="text-slate-400 text-[11px]">Frequency</p>
-                    <p className="text-slate-700">M: {med.frequency.morning ?? "0"}</p>
+                    <p className="text-sm font-semibold text-slate-600">Frequency</p>
+                    <p className="text-sm text-slate-800">M: {med.frequency.morning ?? "0"}</p>
                   </div>
                   <div>
-                    <p className="text-slate-400 text-[11px]">Start Date</p>
-                    <p className="text-slate-700">{med.start_date || "N/A"}</p>
+                    <p className="text-sm font-semibold text-slate-600">Start Date</p>
+                    <p className="text-sm text-slate-800">{med.start_date || "N/A"}</p>
                   </div>
                   <div>
-                    <p className="text-slate-400 text-[11px]">Duration</p>
-                    <p className="text-slate-700">{med.days ? `${med.days} days` : "N/A"}</p>
+                    <p className="text-sm font-semibold text-slate-600">Duration</p>
+                    <p className="text-sm text-slate-800">{med.days ? `${med.days} days` : "N/A"}</p>
                   </div>
                   <div>
-                    <p className="text-slate-400 text-[11px]">Instructions</p>
-                    <p className="text-slate-700">{med.instruction || "N/A"}</p>
+                    <p className="text-sm font-semibold text-slate-600">Instructions</p>
+                    <p className="text-sm text-slate-800">{med.instruction || "N/A"}</p>
                   </div>
                 </div>
               </div>
@@ -1002,11 +1002,11 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             <div className="space-y-2">
               {labs.map((lab, i) => (
                 <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
-                  <p className="text-sm font-semibold text-slate-800">{lab.name}</p>
-                  <p className="text-xs text-slate-400 mt-1">Date</p>
-                  <p className="text-xs text-slate-700">{lab.date}</p>
-                  <p className="text-xs text-slate-400 mt-1">Notes</p>
-                  <p className="text-xs text-slate-700">{lab.notes}</p>
+                  <p className="text-sm font-bold text-slate-900">{lab.name}</p>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
+                  <p className="text-sm text-slate-800">{lab.date}</p>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Notes</p>
+                  <p className="text-sm text-slate-800">{lab.notes}</p>
                 </div>
               ))}
             </div>
@@ -1029,13 +1029,13 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
               {procedures.map((procedure, i) => (
                 <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-800">{procedure.name}</p>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-600">{procedure.badge}</span>
+                    <p className="text-sm font-bold text-slate-900">{procedure.name}</p>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 font-medium">{procedure.badge}</span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">Date</p>
-                  <p className="text-xs text-slate-700">{procedure.date}</p>
-                  <p className="text-xs text-slate-400 mt-1">Note</p>
-                  <p className="text-xs text-slate-700">{procedure.notes}</p>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
+                  <p className="text-sm text-slate-800">{procedure.date}</p>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Note</p>
+                  <p className="text-sm text-slate-800">{procedure.notes}</p>
                 </div>
               ))}
             </div>
@@ -1060,11 +1060,11 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
               {referrals.map((referral, i) => (
                 <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-slate-800">{referral.specialist}</p>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">{referral.badge}</span>
+                    <p className="text-sm font-bold text-slate-900">{referral.specialist}</p>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">{referral.badge}</span>
                   </div>
-                  <p className="text-xs text-slate-700 mt-1">Reason: {referral.reason || "N/A"}</p>
-                  <p className="text-xs text-slate-700">Notes: {referral.notes || "N/A"}</p>
+                  <p className="text-sm text-slate-800 mt-1"><span className="font-semibold text-slate-600">Reason:</span> {referral.reason || "N/A"}</p>
+                  <p className="text-sm text-slate-800"><span className="font-semibold text-slate-600">Notes:</span> {referral.notes || "N/A"}</p>
                 </div>
               ))}
             </div>
@@ -1085,11 +1085,11 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
           ) : (
             <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-800">{followupCard.date}</p>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">{followupCard.badge}</span>
+                <p className="text-sm font-bold text-slate-900">{followupCard.date}</p>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">{followupCard.badge}</span>
               </div>
-              <p className="text-xs text-slate-700 mt-1">Reason: {followupCard.reason}</p>
-              <p className="text-xs text-slate-700">Instructions: {followupCard.instructions}</p>
+              <p className="text-sm text-slate-800 mt-1"><span className="font-semibold text-slate-600">Reason:</span> {followupCard.reason}</p>
+              <p className="text-sm text-slate-800"><span className="font-semibold text-slate-600">Instructions:</span> {followupCard.instructions}</p>
             </div>
           )}
         </div>

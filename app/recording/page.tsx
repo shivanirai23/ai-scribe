@@ -1232,14 +1232,9 @@ export default function RecordingPage() {
           recordingTime={recording.recordingTime}
           isSpeechDetected={recording.isSpeechDetected}
           isPaused={recording.isPaused}
-          previewText={liveDraft || recording.transcription[recording.transcription.length - 1] || ""}
-          onPause={() => {
-            if (recording.isPaused) {
-              dispatch(resumeRecording());
-              return;
-            }
-            dispatch(pauseRecording());
-          }}
+          transcriptionText={recording.transcription}
+          onPause={() => dispatch(pauseRecording())}
+          onResume={() => dispatch(resumeRecording())}
           onStop={handleStop}
         />
       )}
