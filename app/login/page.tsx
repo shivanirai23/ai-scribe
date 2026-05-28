@@ -1,18 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { setUser, setLoggedIn } from "@/store/slices/userSlice";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  confirmResetPassword,
+  confirmSignIn,
+  fetchUserAttributes,
+  resetPassword,
+  signIn,
+} from "aws-amplify/auth";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const dispatch = useAppDispatch();
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => searchParams.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -35,29 +43,34 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      const authResponse = await fetch("/api/auth/token", {
-        method: "POST",
+      const result = await signIn({
+        username: email,
+        password,
       });
 
-      const authData = (await authResponse.json()) as {
-        success?: boolean;
-        error?: string;
-      };
-
-      if (!authResponse.ok || !authData.success) {
-        throw new Error(authData.error || "Failed to get auth token");
+      if (result.nextStep.signInStep === "CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED") {
+        setError("A new password is required. Please use the 'Forgot password' option to reset your password.");
+        setIsLoading(false);
+        return;
+      } else if (result.nextStep.signInStep !== "DONE") {
+        setError("Additional authentication is required. Please try again or reset your password.");
+        setIsLoading(false);
+        return;
       }
+
+      const attributes = await fetchUserAttributes();
+
+      const firstName = attributes.given_name ?? attributes.name?.split(" ")[0] ?? "";
+      const lastName = attributes.family_name ?? attributes.name?.split(" ").slice(1).join(" ") ?? "";
 
       dispatch(
         setUser({
-          firstName: "Sarah",
-          lastName: "Chen",
-          email,
-          speciality: "Internal Medicine",
-          clinicName: "Sunrise Health Clinic",
-          phone: "+15551234567",
-          totalMinutesLeft: 240,
-          totalMinutesAllowed: 600,
+          firstName,
+          lastName,
+          email: attributes.email ?? email,
+          phone: attributes.phone_number ?? "",
+          speciality: attributes["custom:specialty"] ?? "",
+          clinicName: attributes["custom:clinic_name"] ?? "",
         })
       );
       dispatch(setLoggedIn(true));
@@ -69,20 +82,54 @@ export default function LoginPage() {
     }
   };
 
-  const handleForgotPassword = (e: React.FormEvent) => {
+  const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    setForgotMsg(null);
+
     if (!forgotEmail) {
       setForgotMsg({ type: "error", text: "Please enter your email address." });
       return;
     }
+
     setForgotLoading(true);
-    setTimeout(() => {
-      setForgotLoading(false);
+    try {
+      const result = await resetPassword({ username: forgotEmail });
+
+      if (result.nextStep.resetPasswordStep === "CONFIRM_RESET_PASSWORD_WITH_CODE") {
+        setForgotMsg({
+          type: "success",
+          text: "A confirmation code was sent to your email. Use the prompts to finish the reset.",
+        });
+
+        const confirmationCode = window.prompt(
+          "Enter the password reset confirmation code sent to your email."
+        );
+        if (!confirmationCode) {
+          return;
+        }
+
+        const newPassword = window.prompt("Enter your new password.");
+        if (!newPassword) {
+          return;
+        }
+
+        await confirmResetPassword({
+          username: forgotEmail,
+          confirmationCode,
+          newPassword,
+        });
+
+        setForgotMsg({ type: "success", text: "Your password has been updated. You can sign in now." });
+        setForgotOpen(false);
+      }
+    } catch (error) {
       setForgotMsg({
-        type: "success",
-        text: "If an account exists for this email, a password reset link has been sent.",
+        type: "error",
+        text: error instanceof Error ? error.message : "Password reset failed. Please try again.",
       });
-    }, 800);
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   return (

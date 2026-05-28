@@ -15,6 +15,7 @@ import {
   Info,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { confirmSignUp, signUp } from "aws-amplify/auth";
 
 const SPECIALTIES = [
   "Internal Medicine",
@@ -129,17 +130,42 @@ export default function SignupPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setServerError("");
     if (!validate()) return;
 
     setIsLoading(true);
-    // Simulate signup — navigate to login
-    setTimeout(() => {
+
+    try {
+      const phoneNumber = form.phone ? `${form.countryCode}${form.phone}` : undefined;
+      const result = await signUp({
+        username: form.email,
+        password: form.password,
+        options: {
+          userAttributes: {
+            email: form.email,
+            given_name: form.firstName,
+            family_name: form.lastName,
+            name: `${form.firstName} ${form.lastName}`.trim(),
+            ...(phoneNumber ? { phone_number: phoneNumber } : {}),
+            "custom:specialty": form.specialty,
+            "custom:clinic_name": form.clinicName,
+          },
+        },
+      });
+
+      if (result.nextStep.signUpStep === "CONFIRM_SIGN_UP") {
+        // Redirect to verify page with email
+        router.push(`/signup/verify?email=${encodeURIComponent(form.email)}`);
+        return;
+      }
+      router.push(`/login?email=${encodeURIComponent(form.email)}`);
+    } catch (error) {
+      setServerError(error instanceof Error ? error.message : "Sign up failed. Please try again.");
+    } finally {
       setIsLoading(false);
-      router.push("/login");
-    }, 800);
+    }
   };
 
   const updateField = (field: keyof FormData, value: string) => {

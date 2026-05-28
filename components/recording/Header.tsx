@@ -133,7 +133,7 @@ export function UserProfileSidebar() {
 
   const initials = getInitials(user.firstName || "U", user.lastName || "S");
 
-  const handleSave = () => {
+  const handleSave = async () => {
     let hasError = false;
     if (!firstName || firstName.length < 2) {
       setFirstNameError("Min 2 characters");
@@ -144,8 +144,22 @@ export function UserProfileSidebar() {
       hasError = true;
     }
     if (hasError) return;
-    // Would dispatch updateProfile in real use
-    dispatch(setShowUserSidebar(false));
+
+    try {
+      // Dynamically import to avoid SSR issues
+      const { updateUserAttributes } = await import("aws-amplify/auth");
+      await updateUserAttributes({
+        userAttributes: {
+          given_name: firstName,
+          family_name: lastName,
+          "custom:specialty": specialty,
+        },
+      });
+      dispatch({ type: "user/updateProfile", payload: { firstName, lastName, speciality: specialty } });
+      dispatch(setShowUserSidebar(false));
+    } catch (e) {
+      setFirstNameError("Failed to update profile");
+    }
   };
 
   const handleChangePassword = () => {
@@ -174,7 +188,14 @@ export function UserProfileSidebar() {
     setConfirmPassword("");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      // Dynamically import to avoid SSR issues
+      const { signOut } = await import("aws-amplify/auth");
+      await signOut();
+    } catch (e) {
+      // Ignore errors
+    }
     dispatch(logout());
     dispatch(endVisit());
     router.push("/login");
