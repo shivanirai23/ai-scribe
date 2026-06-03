@@ -59,6 +59,10 @@ export class HikigaiClient {
 	}
 
 	async invokeAgent(agentSlug: string, input: unknown) {
+		if (!this.projectId) {
+			throw new Error("Missing HIKIGAI_PROJECT_ID");
+		}
+
 		const url = `${this.baseUrl}/api/v1/agents/${agentSlug}/invoke`;
 		let token = await this.getAuthToken();
 
@@ -67,6 +71,7 @@ export class HikigaiClient {
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${token}`,
+				"X-Project-ID": this.projectId,
 			},
 			body: JSON.stringify({
 				input,
@@ -82,6 +87,7 @@ export class HikigaiClient {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${token}`,
+					"X-Project-ID": this.projectId,
 				},
 				body: JSON.stringify({
 					input,
