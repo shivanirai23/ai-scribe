@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -15,7 +15,8 @@ import {
   Info,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { confirmSignUp, signUp } from "aws-amplify/auth";
+import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { fetchAuthSession, signUp } from "aws-amplify/auth";
 
 const SPECIALTIES = [
   "Internal Medicine",
@@ -68,6 +69,33 @@ function InfoTooltip({ text }: { text: string }) {
 
 export default function SignupPage() {
   const router = useRouter();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const redirectAuthenticatedUser = async () => {
+      try {
+        configureCognitoAuth();
+        const session = await fetchAuthSession();
+        if (!isMounted) {
+          return;
+        }
+
+        if (session.tokens?.accessToken || session.tokens?.idToken) {
+          router.replace("/recording");
+        }
+      } catch {
+        // No active session; allow access to signup.
+      }
+    };
+
+    void redirectAuthenticatedUser();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
   const [isLoading, setIsLoading] = useState(false);
   const [serverError, setServerError] = useState("");
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);

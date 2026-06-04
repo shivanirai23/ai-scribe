@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { confirmSignUp, resendSignUpCode } from "aws-amplify/auth";
+import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { confirmSignUp, fetchAuthSession, resendSignUpCode } from "aws-amplify/auth";
 import Image from "next/image";
 import { AlertCircle, Mail } from "lucide-react";
 
@@ -10,6 +11,33 @@ export default function VerifySignupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") || "";
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const redirectAuthenticatedUser = async () => {
+      try {
+        configureCognitoAuth();
+        const session = await fetchAuthSession();
+        if (!isMounted) {
+          return;
+        }
+
+        if (session.tokens?.accessToken || session.tokens?.idToken) {
+          router.replace("/recording");
+        }
+      } catch {
+        // No active session; allow access to verification.
+      }
+    };
+
+    void redirectAuthenticatedUser();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);

@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { setUser, setLoggedIn } from "@/store/slices/userSlice";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { configureCognitoAuth } from "@/lib/auth/cognito";
 import {
   confirmResetPassword,
   confirmSignIn,
+  fetchAuthSession,
   fetchUserAttributes,
   resetPassword,
   signIn,
@@ -19,6 +21,32 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const dispatch = useAppDispatch();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const redirectAuthenticatedUser = async () => {
+      try {
+        configureCognitoAuth();
+        const session = await fetchAuthSession();
+        if (!isMounted) {
+          return;
+        }
+
+        if (session.tokens?.accessToken || session.tokens?.idToken) {
+          router.replace("/recording");
+        }
+      } catch {
+        // No active session; allow access to login.
+      }
+    };
+
+    void redirectAuthenticatedUser();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   const [email, setEmail] = useState(() => searchParams.get("email") ?? "");
   const [password, setPassword] = useState("");
