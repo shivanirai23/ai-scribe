@@ -4,8 +4,8 @@ export async function GET() {
   const apiKey = process.env.HIKIGAI_API_KEY || "";
   const projectId = process.env.HIKIGAI_PROJECT_ID || "";
   const baseUrl =
-    process.env.HIKIGAI_BASE_URL ||
-    "http://hikigai-alb-1665592634.us-east-2.elb.amazonaws.com";
+    process.env.HIKIGAI_PLATFORM_URL ||
+    "";
 
   if (!apiKey || !projectId) {
     return NextResponse.json(
