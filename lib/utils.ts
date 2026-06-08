@@ -23,8 +23,13 @@ function getDeployedBasePath(): string {
   return "";
 }
 
+export function withBasePath(path: string): string {
+  if (!path.startsWith("/")) return path;
+  return getDeployedBasePath() + path;
+}
+
 export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(getDeployedBasePath() + path, init);
+  return fetch(withBasePath(path), init);
 }
 
 export function cn(...inputs: ClassValue[]) {

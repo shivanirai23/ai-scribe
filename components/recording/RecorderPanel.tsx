@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { Mic, Play, Pause } from "lucide-react";
-import { formatTime } from "@/lib/utils";
+import { formatTime, withBasePath } from "@/lib/utils";
 
 interface RecorderPanelProps {
   visitId: string | null;
@@ -46,7 +46,7 @@ export function RecorderPanel({
             className="flex flex-col items-center h-full justify-center gap-6"
           >
             <Image
-              src="/vt_img.png"
+              src={withBasePath("/vt_img.png")}
               alt="Visit illustration"
               width={400}
               height={400}

@@ -3,6 +3,7 @@ export class HikigaiClient {
 	private projectId: string;
 	private baseUrl: string;
 	private authToken: string | null;
+	private readonly defaultTimeoutMs: number;
 
 	constructor(apiKey?: string, projectId?: string, baseUrl?: string) {
 		this.apiKey = apiKey || process.env.HIKIGAI_API_KEY || "";
@@ -11,9 +12,53 @@ export class HikigaiClient {
 			baseUrl ||
 			process.env.HIKIGAI_PLATFORM_URL || "";
 		this.authToken = null;
+		const envTimeout = Number(process.env.HIKIGAI_REQUEST_TIMEOUT_MS || "300000");
+		this.defaultTimeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : 300000;
 	}
 
-	private async getAuthToken(forceRefresh = false): Promise<string> {
+	private getTimeoutMs(timeoutMs?: number): number {
+		if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+			return timeoutMs;
+		}
+
+		return this.defaultTimeoutMs;
+	}
+
+	private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs?: number): Promise<Response> {
+		const resolvedTimeoutMs = this.getTimeoutMs(timeoutMs);
+		const controller = new AbortController();
+		const parentSignal = init.signal;
+
+		const onAbort = () => controller.abort();
+		if (parentSignal) {
+			if (parentSignal.aborted) {
+				controller.abort();
+			} else {
+				parentSignal.addEventListener("abort", onAbort, { once: true });
+			}
+		}
+
+		const timeoutId = setTimeout(() => controller.abort(), resolvedTimeoutMs);
+
+		try {
+			return await fetch(url, {
+				...init,
+				signal: controller.signal,
+			});
+		} catch (error) {
+			if (error instanceof Error && error.name === "AbortError") {
+				throw new Error(`Hikigai request timed out after ${resolvedTimeoutMs}ms`);
+			}
+			throw error;
+		} finally {
+			clearTimeout(timeoutId);
+			if (parentSignal) {
+				parentSignal.removeEventListener("abort", onAbort);
+			}
+		}
+	}
+
+	private async getAuthToken(forceRefresh = false, timeoutMs?: number): Promise<string> {
 		if (this.authToken && !forceRefresh) {
 			return this.authToken;
 		}
@@ -23,12 +68,16 @@ export class HikigaiClient {
 		}
 
 		const url = `${this.baseUrl}/api/v1/auth/exchange`;
-		const response = await fetch(url, {
+		const response = await this.fetchWithTimeout(
+			url,
+			{
 			method: "POST",
 			headers: {
 				"X-API-Key": this.apiKey,
 			},
-		});
+			},
+			timeoutMs
+		);
 
 		if (!response.ok) {
 			const error = await response.text();
@@ -50,22 +99,24 @@ export class HikigaiClient {
 		return token;
 	}
 
-	async ensureAuthToken(forceRefresh = false) {
-		const token = await this.getAuthToken(forceRefresh);
+	async ensureAuthToken(forceRefresh = false, timeoutMs?: number) {
+		const token = await this.getAuthToken(forceRefresh, timeoutMs);
 		return {
 			token,
 		};
 	}
 
-	async invokeAgent(agentSlug: string, input: unknown) {
+	async invokeAgent(agentSlug: string, input: unknown, timeoutMs?: number) {
 		if (!this.projectId) {
 			throw new Error("Missing HIKIGAI_PROJECT_ID");
 		}
 
 		const url = `${this.baseUrl}/api/v1/agents/${agentSlug}/invoke`;
-		let token = await this.getAuthToken();
+		let token = await this.getAuthToken(false, timeoutMs);
 
-		let response = await fetch(url, {
+		let response = await this.fetchWithTimeout(
+			url,
+			{
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -76,12 +127,16 @@ export class HikigaiClient {
 				input,
 				project_id: this.projectId,
 			}),
-		});
+			},
+			timeoutMs
+		);
 
 		// If the token expired, refresh once and retry.
 		if (response.status === 401) {
-			token = await this.getAuthToken(true);
-			response = await fetch(url, {
+			token = await this.getAuthToken(true, timeoutMs);
+			response = await this.fetchWithTimeout(
+				url,
+				{
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
@@ -92,7 +147,9 @@ export class HikigaiClient {
 					input,
 					project_id: this.projectId,
 				}),
-			});
+				},
+				timeoutMs
+			);
 		}
 
 		if (!response.ok) {
