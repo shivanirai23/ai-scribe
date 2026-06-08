@@ -30,6 +30,7 @@ import { QRCodeDialog } from "@/components/recording/Dialogs";
 import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import type { ReportData } from "@/store/slices/recordingSlice";
+import { apiFetch } from "@/lib/utils";
 
 interface AlertItem {
   type: AlertType;
@@ -83,25 +84,6 @@ interface LiveConfigResponse {
     };
     hasApiKey?: boolean;
   };
-}
-
-function getLiveConfigCandidates() {
-  const rootPath = "/api/live-transcriber/config";
-  if (typeof window === "undefined") {
-    return [rootPath];
-  }
-
-  const firstSegment = window.location.pathname.split("/").filter(Boolean)[0];
-  if (!firstSegment) {
-    return [rootPath];
-  }
-
-  const basePathCandidate = `/${firstSegment}/api/live-transcriber/config`;
-  if (basePathCandidate === rootPath) {
-    return [rootPath];
-  }
-
-  return [rootPath, basePathCandidate];
 }
 
 function createSessionId() {
@@ -489,53 +471,12 @@ export default function RecordingPage() {
     pendingResponseRef.current = [];
 
     try {
-      const candidates = getLiveConfigCandidates();
-      let config: LiveConfigResponse | null = null;
-      let lastErrorMessage = "Failed to load live transcriber config";
+      const configResponse = await apiFetch("/api/live-transcriber/config");
+      const config = (await configResponse.json()) as LiveConfigResponse;
+      liveConfigRef.current = config;
 
-      for (const candidate of candidates) {
-        console.info("[live-transcriber] trying config endpoint", {
-          candidate,
-          currentPath: typeof window !== "undefined" ? window.location.pathname : null,
-          origin: typeof window !== "undefined" ? window.location.origin : null,
-        });
-
-        const configResponse = await fetch(candidate);
-        const rawBody = await configResponse.text();
-        let parsedConfig: LiveConfigResponse = {} as LiveConfigResponse;
-
-        try {
-          parsedConfig = JSON.parse(rawBody) as LiveConfigResponse;
-        } catch {
-          parsedConfig = {
-            error: rawBody,
-          } as LiveConfigResponse;
-        }
-
-        if (!configResponse.ok) {
-          lastErrorMessage = parsedConfig.error || `Request failed: ${configResponse.status}`;
-          console.error("[live-transcriber] config endpoint failed", {
-            candidate,
-            status: configResponse.status,
-            statusText: configResponse.statusText,
-            body: rawBody,
-          });
-          continue;
-        }
-
-        config = parsedConfig;
-        liveConfigRef.current = config;
-        console.info("[live-transcriber] config endpoint success", {
-          candidate,
-          baseUrl: config.baseUrl,
-          projectId: config.projectId,
-          diagnostics: config.diagnostics,
-        });
-        break;
-      }
-
-      if (!config) {
-        throw new Error(lastErrorMessage);
+      if (!configResponse.ok) {
+        throw new Error(config.error || "Failed to load live transcriber config");
       }
 
       const sessionId = createSessionId();
@@ -706,7 +647,7 @@ export default function RecordingPage() {
     // First, format the transcription using hikigai-transcription-agent
     let message = rawMessage;
     try {
-      const formatterResponse = await fetch("/api/transcription-formatter", {
+      const formatterResponse = await apiFetch("/api/transcription-formatter", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -740,7 +681,7 @@ export default function RecordingPage() {
 
     const callAgentRoute = async <T,>(url: string) => {
       try {
-        const response = await fetch(url, {
+        const response = await apiFetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

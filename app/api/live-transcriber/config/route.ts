@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const DEFAULT_PROJECT_ID = "a060ee0a-4be3-4fcc-84df-84f0be2a3197";
-const DEFAULT_PLATFORM_URL = "http://hikigai-alb-1665592634.us-east-2.elb.amazonaws.com";
+const DEFAULT_PLATFORM_URL = "https://d3l2qs3nxy7d0a.cloudfront.net";
 
 export async function GET(request: NextRequest) {
   const apiKey = process.env.HIKIGAI_API_KEY || "";

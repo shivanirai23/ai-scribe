@@ -1,6 +1,18 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+function getDeployedBasePath(): string {
+  if (typeof window !== "undefined") {
+    const nextData = (window as Window & { __NEXT_DATA__?: { basePath?: string } }).__NEXT_DATA__;
+    if (nextData?.basePath) return nextData.basePath;
+  }
+  return "";
+}
+
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(getDeployedBasePath() + path, init);
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }

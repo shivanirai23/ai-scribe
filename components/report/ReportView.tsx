@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { apiFetch } from "@/lib/utils";
 import {
   setCurrentView,
   endVisit,
@@ -79,7 +80,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("visit");
     setRetryErrors((prev) => ({ ...prev, visit: "" }));
     try {
-      const response = await fetch("/api/visit-notes", {
+      const response = await apiFetch("/api/visit-notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -115,7 +116,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("soap");
     setRetryErrors((prev) => ({ ...prev, soap: "" }));
     try {
-      const response = await fetch("/api/soap-notes", {
+      const response = await apiFetch("/api/soap-notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -164,7 +165,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("icd");
     setRetryErrors((prev) => ({ ...prev, icd: "" }));
     try {
-      const response = await fetch("/api/icd-10-codes", {
+      const response = await apiFetch("/api/icd-10-codes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -203,7 +204,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("cpt");
     setRetryErrors((prev) => ({ ...prev, cpt: "" }));
     try {
-      const response = await fetch("/api/cpt-pipeline", {
+      const response = await apiFetch("/api/cpt-pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -241,7 +242,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("cpt2");
     setRetryErrors((prev) => ({ ...prev, cpt2: "" }));
     try {
-      const response = await fetch("/api/cpt2-codes", {
+      const response = await apiFetch("/api/cpt2-codes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -279,7 +280,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("em");
     setRetryErrors((prev) => ({ ...prev, em: "" }));
     try {
-      const response = await fetch("/api/em-code", {
+      const response = await apiFetch("/api/em-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -629,7 +630,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("medications");
     setRetryErrors((prev) => ({ ...prev, medications: "" }));
     try {
-      const response = await fetch("/api/medications", {
+      const response = await apiFetch("/api/medications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -759,7 +760,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("labs");
     setRetryErrors((prev) => ({ ...prev, labs: "" }));
     try {
-      const response = await fetch("/api/lab-tests", {
+      const response = await apiFetch("/api/lab-tests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -792,7 +793,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("followup");
     setRetryErrors((prev) => ({ ...prev, followup: "" }));
     try {
-      const response = await fetch("/api/follow-ups", {
+      const response = await apiFetch("/api/follow-ups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -875,7 +876,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("procedures");
     setRetryErrors((prev) => ({ ...prev, procedures: "" }));
     try {
-      const response = await fetch("/api/procedures", {
+      const response = await apiFetch("/api/procedures", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
@@ -914,7 +915,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     setRetryingSection("referrals");
     setRetryErrors((prev) => ({ ...prev, referrals: "" }));
     try {
-      const response = await fetch("/api/referrals", {
+      const response = await apiFetch("/api/referrals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: transcriptMessage }),
