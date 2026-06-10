@@ -30,7 +30,7 @@ import { QRCodeDialog } from "@/components/recording/Dialogs";
 import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import type { ReportData } from "@/store/slices/recordingSlice";
-import { apiFetch, withRouteBasePath } from "@/lib/utils";
+import { apiFetch } from "@/lib/utils";
 
 interface AlertItem {
   type: AlertType;
@@ -1151,7 +1151,7 @@ export default function RecordingPage() {
     dispatch(startVisit(visitId));
     dispatch(addTranscription(message));
     dispatch(setReportLoading(true));
-    router.push(withRouteBasePath("/visit-details"));
+    router.push("/visit-details");
 
     await generateReportFromMessage(message);
   };

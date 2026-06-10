@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { configureCognitoAuth } from "@/lib/auth/cognito";
-import { withRouteBasePath } from "@/lib/utils";
 import { confirmSignUp, fetchAuthSession, resendSignUpCode } from "aws-amplify/auth";
 import Image from "next/image";
 import { AlertCircle, Mail } from "lucide-react";
@@ -25,7 +24,7 @@ export default function VerifySignupPage() {
         }
 
         if (session.tokens?.accessToken || session.tokens?.idToken) {
-          router.replace(withRouteBasePath("/recording"));
+          router.replace("/recording");
         }
       } catch {
         // No active session; allow access to verification.
@@ -50,7 +49,7 @@ export default function VerifySignupPage() {
     setIsLoading(true);
     try {
       await confirmSignUp({ username: email, confirmationCode: code });
-      router.push(withRouteBasePath(`/login?email=${encodeURIComponent(email)}`));
+      router.push(`/login?email=${encodeURIComponent(email)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed. Try again.");
     } finally {
@@ -72,7 +71,7 @@ export default function VerifySignupPage() {
   };
 
   const handleChangeEmail = () => {
-    router.push(withRouteBasePath(`/signup?email=${encodeURIComponent(email)}`));
+    router.push(`/signup?email=${encodeURIComponent(email)}`);
   };
 
   return (

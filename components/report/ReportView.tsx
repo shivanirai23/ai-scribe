@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { apiFetch, withRouteBasePath, withoutBasePath } from "@/lib/utils";
+import { apiFetch, withoutBasePath } from "@/lib/utils";
 import {
   setCurrentView,
   endVisit,
@@ -1212,7 +1212,7 @@ export function ReportView() {
   const handleEndVisit = () => {
     dispatch(endVisit());
     if (isVisitDetailsRoute) {
-      router.push(withRouteBasePath("/recording"));
+      router.push("/recording");
     }
   };
 
@@ -1609,7 +1609,7 @@ export function ReportView() {
               onClick={() => {
                 setShowBackWarning(false);
                 if (isVisitDetailsRoute) {
-                  router.push(withRouteBasePath("/recording"));
+                  router.push("/recording");
                 } else {
                   dispatch(setCurrentView("recording"));
                 }

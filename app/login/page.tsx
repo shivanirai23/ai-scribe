@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import { Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { setUser, setLoggedIn } from "@/store/slices/userSlice";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { configureCognitoAuth } from "@/lib/auth/cognito";
-import { withBasePath, withRouteBasePath } from "@/lib/utils";
 import {
   confirmResetPassword,
   confirmSignIn,
@@ -35,7 +35,7 @@ export default function LoginPage() {
         }
 
         if (session.tokens?.accessToken || session.tokens?.idToken) {
-          router.replace(withRouteBasePath("/recording"));
+          router.replace("/recording");
         }
       } catch {
         // No active session; allow access to login.
@@ -103,7 +103,7 @@ export default function LoginPage() {
         })
       );
       dispatch(setLoggedIn(true));
-      router.push(withRouteBasePath("/recording"));
+      router.push("/recording");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Sign in failed. Please try again.");
     } finally {
@@ -274,12 +274,12 @@ export default function LoginPage() {
 
           <div className="mt-8 text-center">
             <span className="text-slate-600">Don&apos;t have an account? </span>
-            <a
-              href={withBasePath("/signup")}
+            <Link
+              href="/signup"
               className="text-brand-pink hover:text-brand-orange transition-colors font-medium"
             >
               Sign Up
-            </a>
+            </Link>
           </div>
         </div>
       </div>

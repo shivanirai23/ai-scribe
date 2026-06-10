@@ -54,12 +54,6 @@ export function withBasePath(path: string): string {
   return basePath ? basePath + path : path;
 }
 
-export function withRouteBasePath(path: string): string {
-  if (!path.startsWith("/")) return path;
-  const basePath = getRuntimeBasePath();
-  return basePath ? basePath + path : path;
-}
-
 export function withoutBasePath(path: string): string {
   const basePath = getDeployedBasePath();
   if (!basePath || (path !== basePath && !path.startsWith(`${basePath}/`))) return path;

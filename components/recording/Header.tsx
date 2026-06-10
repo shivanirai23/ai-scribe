@@ -11,7 +11,7 @@ import {
   endVisit,
 } from "@/store/slices/recordingSlice";
 import { logout } from "@/store/slices/userSlice";
-import { getInitials, withRouteBasePath } from "@/lib/utils";
+import { getInitials } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 
@@ -68,7 +68,7 @@ export function Header() {
       <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 flex-shrink-0">
         {showPremiumBanner && (
           <button
-            onClick={() => router.push(withRouteBasePath("/pricing"))}
+            onClick={() => router.push("/pricing")}
             className="flex text-white hover:bg-orange-500 bg-brand-orange border border-brand-orange rounded-full px-2 sm:px-4 text-xs sm:text-sm h-8 sm:h-9 items-center transition-colors"
           >
             <Crown className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-2" />
@@ -320,7 +320,7 @@ export function UserProfileSidebar() {
     }
     dispatch(logout());
     dispatch(endVisit());
-    router.push(withRouteBasePath("/login"));
+    router.push("/login");
   };
 
   if (!showSidebar) return null;
