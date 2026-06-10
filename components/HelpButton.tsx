@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { MessageCircleMore } from "lucide-react";
+import { withRouteBasePath, withoutBasePath } from "@/lib/utils";
 
 const SHOW_ON_ROUTES = ["/", "/recording", "/pricing", "/processing", "/visit-details"];
 
@@ -11,9 +12,10 @@ export function HelpButton() {
   const router = useRouter();
 
   const shouldShow = useMemo(() => {
-    if (!pathname || pathname === "/help") return false;
+    const appPathname = pathname ? withoutBasePath(pathname) : "";
+    if (!appPathname || appPathname === "/help") return false;
     return SHOW_ON_ROUTES.some((route) =>
-      route === "/" ? pathname === "/" : pathname.startsWith(route)
+      route === "/" ? appPathname === "/" : appPathname.startsWith(route)
     );
   }, [pathname]);
 
@@ -24,7 +26,7 @@ export function HelpButton() {
   return (
     <button
       type="button"
-      onClick={() => router.push("/help")}
+      onClick={() => router.push(withRouteBasePath("/help"))}
       className="fixed bottom-6 left-4 z-50 h-12 w-12 rounded-full bg-[#2c8eff] text-white shadow-xl flex items-center justify-center transition hover:brightness-95"
       aria-label="Open help"
     >

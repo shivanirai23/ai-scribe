@@ -1,3 +1,5 @@
+export const HIKIGAI_AGENT_TIMEOUT_MS = 300000;
+
 export class HikigaiClient {
 	private apiKey: string;
 	private projectId: string;
@@ -12,8 +14,7 @@ export class HikigaiClient {
 			baseUrl ||
 			process.env.HIKIGAI_PLATFORM_URL || "";
 		this.authToken = null;
-		const envTimeout = Number(process.env.HIKIGAI_REQUEST_TIMEOUT_MS || "300000");
-		this.defaultTimeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : 300000;
+		this.defaultTimeoutMs = HIKIGAI_AGENT_TIMEOUT_MS;
 	}
 
 	private getTimeoutMs(timeoutMs?: number): number {

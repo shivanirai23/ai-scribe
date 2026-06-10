@@ -6,7 +6,7 @@ import Image from "next/image";
 import { ArrowLeft, Check, Loader2 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { setUser } from "@/store/slices/userSlice";
-import { apiFetch } from "@/lib/utils";
+import { apiFetch, withRouteBasePath } from "@/lib/utils";
 
 function PaymentSuccessContent() {
   const searchParams = useSearchParams();
@@ -109,13 +109,13 @@ function PaymentSuccessContent() {
               <div className="flex flex-col gap-3 pt-4">
                 <button
                   className="w-full bg-green-600 hover:bg-green-700 text-white rounded-xl h-10"
-                  onClick={() => router.push("/")}
+                  onClick={() => router.push(withRouteBasePath("/"))}
                 >
                   Launch CarePilot
                 </button>
                 <button
                   className="w-full rounded-xl h-10 border border-slate-200"
-                  onClick={() => router.push("/pricing")}
+                  onClick={() => router.push(withRouteBasePath("/pricing"))}
                 >
                   <span className="inline-flex items-center justify-center">
                     <ArrowLeft className="w-4 h-4 mr-2" />
@@ -132,7 +132,7 @@ function PaymentSuccessContent() {
               </p>
               <button
                 className="rounded-xl h-10 border border-slate-200 px-4"
-                onClick={() => router.push("/pricing")}
+                onClick={() => router.push(withRouteBasePath("/pricing"))}
               >
                 <span className="inline-flex items-center justify-center">
                   <ArrowLeft className="w-4 h-4 mr-2" />

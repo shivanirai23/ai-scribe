@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hikigai } from "@/lib/hikigai";
+import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
+
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     const result = await hikigai.invokeAgent("hikigai-transcription-agent", {
       transcription: message,
-    });
+    }, HIKIGAI_AGENT_TIMEOUT_MS);
     console.log("[transcription-formatter] raw invoke output:", JSON.stringify(result));
 
     // Extract the formatted transcription from the agent output

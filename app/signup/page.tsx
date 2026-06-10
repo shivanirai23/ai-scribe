@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { withBasePath, withRouteBasePath } from "@/lib/utils";
 import { fetchAuthSession, signUp } from "aws-amplify/auth";
 
 const SPECIALTIES = [
@@ -82,7 +83,7 @@ export default function SignupPage() {
         }
 
         if (session.tokens?.accessToken || session.tokens?.idToken) {
-          router.replace("/recording");
+          router.replace(withRouteBasePath("/recording"));
         }
       } catch {
         // No active session; allow access to signup.
@@ -185,10 +186,10 @@ export default function SignupPage() {
 
       if (result.nextStep.signUpStep === "CONFIRM_SIGN_UP") {
         // Redirect to verify page with email
-        router.push(`/signup/verify?email=${encodeURIComponent(form.email)}`);
+        router.push(withRouteBasePath(`/signup/verify?email=${encodeURIComponent(form.email)}`));
         return;
       }
-      router.push(`/login?email=${encodeURIComponent(form.email)}`);
+      router.push(withRouteBasePath(`/login?email=${encodeURIComponent(form.email)}`));
     } catch (error) {
       setServerError(error instanceof Error ? error.message : "Sign up failed. Please try again.");
     } finally {
@@ -470,7 +471,7 @@ export default function SignupPage() {
           <div className="mt-8 text-center">
             <span className="text-slate-600">Already have an account? </span>
             <a
-              href="/login"
+              href={withBasePath("/login")}
               className="text-brand-pink hover:text-brand-orange transition-colors font-medium"
             >
               Sign in

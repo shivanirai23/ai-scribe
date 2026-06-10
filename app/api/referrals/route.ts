@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { hikigai } from "@/lib/hikigai";
+import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
+
+export const maxDuration = 300;
 
 interface ReferralRequest {
   message?: string;
@@ -133,7 +135,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const agentResponse = await hikigai.invokeAgent("referral-agent-v2", { message });
+    const agentResponse = await hikigai.invokeAgent("referral-agent-v2", { message }, HIKIGAI_AGENT_TIMEOUT_MS);
     // console.log("[referral-agent-v2] raw invoke output:", JSON.stringify(agentResponse));
 
     const referrals = normalizeReferrals(agentResponse);
