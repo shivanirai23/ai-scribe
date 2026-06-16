@@ -7,6 +7,7 @@ import { ArrowLeft, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAppSelector } from "@/store/hooks";
+import { apiFetch } from "@/lib/utils";
 
 interface FormData {
   category: string;
@@ -135,7 +136,7 @@ export default function HelpCenterPage() {
       payload.append("description", formData.description.trim());
       attachedFiles.forEach((item) => payload.append("attachments", item.file));
 
-      const response = await fetch("/api/help/contact", {
+      const response = await apiFetch("/api/help/contact", {
         method: "POST",
         body: payload,
       });

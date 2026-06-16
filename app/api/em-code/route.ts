@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { hikigai } from "@/lib/hikigai";
+import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
+
+export const maxDuration = 300;
 
 interface EmCodeRequest {
   message?: string;
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const agentResponse = await hikigai.invokeAgent("em-code-agent", { message });
+    const agentResponse = await hikigai.invokeAgent("em-code-agent", { message }, HIKIGAI_AGENT_TIMEOUT_MS);
     // console.log("[em-code-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     return NextResponse.json(normalizeEmCode(agentResponse), { status: 200 });

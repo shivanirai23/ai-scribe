@@ -30,6 +30,7 @@ import { QRCodeDialog } from "@/components/recording/Dialogs";
 import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import type { ReportData } from "@/store/slices/recordingSlice";
+import { apiFetch } from "@/lib/utils";
 
 interface AlertItem {
   type: AlertType;
@@ -72,6 +73,17 @@ interface LiveConfigResponse {
   projectId: string;
   agentName: string;
   error?: string;
+  diagnostics?: {
+    requestPath?: string;
+    refererPath?: string;
+    host?: string | null;
+    basepathEnv?: string | null;
+    usingFallbacks?: {
+      projectId?: boolean;
+      platformUrl?: boolean;
+    };
+    hasApiKey?: boolean;
+  };
 }
 
 function createSessionId() {
@@ -459,7 +471,7 @@ export default function RecordingPage() {
     pendingResponseRef.current = [];
 
     try {
-      const configResponse = await fetch("/api/live-transcriber/config");
+      const configResponse = await apiFetch("/api/live-transcriber/config");
       const config = (await configResponse.json()) as LiveConfigResponse;
       liveConfigRef.current = config;
 
@@ -635,7 +647,7 @@ export default function RecordingPage() {
     // First, format the transcription using hikigai-transcription-agent
     let message = rawMessage;
     try {
-      const formatterResponse = await fetch("/api/transcription-formatter", {
+      const formatterResponse = await apiFetch("/api/transcription-formatter", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -669,7 +681,7 @@ export default function RecordingPage() {
 
     const callAgentRoute = async <T,>(url: string) => {
       try {
-        const response = await fetch(url, {
+        const response = await apiFetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

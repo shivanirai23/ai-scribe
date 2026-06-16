@@ -128,8 +128,19 @@ export function UserProfileSidebar() {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [showOldPw, setShowOldPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
   const [showConfirmPw, setShowConfirmPw] = useState(false);
+  const [showResetNewPw, setShowResetNewPw] = useState(false);
+  const [showResetConfirmPw, setShowResetConfirmPw] = useState(false);
   const [pwError, setPwError] = useState("");
+  const [pwSuccess, setPwSuccess] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [forgotPasswordStep, setForgotPasswordStep] = useState<"idle" | "confirm-reset">("idle");
 
   const initials = getInitials(user.firstName || "U", user.lastName || "S");
 
@@ -162,19 +173,45 @@ export function UserProfileSidebar() {
     }
   };
 
-  const handleChangePassword = () => {
+  const resetPasswordDialog = () => {
+    setOldPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setResetCode("");
+    setResetNewPassword("");
+    setResetConfirmPassword("");
+    setShowOldPw(false);
+    setShowNewPw(false);
+    setShowConfirmPw(false);
+    setShowResetNewPw(false);
+    setShowResetConfirmPw(false);
+    setForgotPasswordStep("idle");
+    setPwError("");
+    setPwSuccess("");
+  };
+
+  const isValidPassword = (password: string) => {
+    return (
+      password.length >= 8 &&
+      /[a-z]/.test(password) &&
+      /[A-Z]/.test(password) &&
+      /[0-9]/.test(password) &&
+      /[^a-zA-Z0-9]/.test(password)
+    );
+  };
+
+  const handleChangePassword = async () => {
+    setPwSuccess("");
     setPwError("");
     if (!oldPassword || !newPassword || !confirmPassword) {
       setPwError("All fields are required");
       return;
     }
-    if (
-      newPassword.length < 8 ||
-      !/[a-z]/.test(newPassword) ||
-      !/[A-Z]/.test(newPassword) ||
-      !/[0-9]/.test(newPassword) ||
-      !/[^a-zA-Z0-9]/.test(newPassword)
-    ) {
+    if (oldPassword === newPassword) {
+      setPwError("New password must be different from the current password");
+      return;
+    }
+    if (!isValidPassword(newPassword)) {
       setPwError("Password must be 8+ chars with lowercase, uppercase, number, and special character");
       return;
     }
@@ -182,10 +219,95 @@ export function UserProfileSidebar() {
       setPwError("Passwords do not match");
       return;
     }
-    setChangePasswordOpen(false);
-    setOldPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
+
+    try {
+      setIsChangingPassword(true);
+      const { updatePassword } = await import("aws-amplify/auth");
+      await updatePassword({
+        oldPassword,
+        newPassword,
+      });
+      setPwSuccess("Password updated successfully");
+      setTimeout(() => {
+        setChangePasswordOpen(false);
+        resetPasswordDialog();
+      }, 800);
+    } catch (e) {
+      setPwError(e instanceof Error ? e.message : "Failed to change password");
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setPwError("");
+    setPwSuccess("");
+
+    if (!user.email) {
+      setPwError("No email is available for this account.");
+      return;
+    }
+
+    try {
+      setIsResettingPassword(true);
+      const { resetPassword } = await import("aws-amplify/auth");
+      const result = await resetPassword({ username: user.email });
+
+      if (result.nextStep.resetPasswordStep === "CONFIRM_RESET_PASSWORD_WITH_CODE") {
+        setForgotPasswordStep("confirm-reset");
+      } else {
+        setPwSuccess("Password reset request submitted.");
+      }
+    } catch (e) {
+      setPwError(e instanceof Error ? e.message : "Failed to start password reset");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const handleConfirmForgotPassword = async () => {
+    setPwError("");
+    setPwSuccess("");
+
+    if (!user.email) {
+      setPwError("No email is available for this account.");
+      return;
+    }
+
+    if (!resetCode || !resetNewPassword || !resetConfirmPassword) {
+      setPwError("All reset fields are required");
+      return;
+    }
+
+    if (!isValidPassword(resetNewPassword)) {
+      setPwError("Password must be 8+ chars with lowercase, uppercase, number, and special character");
+      return;
+    }
+
+    if (resetNewPassword !== resetConfirmPassword) {
+      setPwError("Passwords do not match");
+      return;
+    }
+
+    try {
+      setIsResettingPassword(true);
+      const { confirmResetPassword } = await import("aws-amplify/auth");
+      await confirmResetPassword({
+        username: user.email,
+        confirmationCode: resetCode,
+        newPassword: resetNewPassword,
+      });
+
+      setPwSuccess("Password reset successfully. Use the new password the next time you sign in.");
+      setTimeout(() => {
+        setChangePasswordOpen(false);
+        resetPasswordDialog();
+      }, 800);
+    } catch (e) {
+      setPwError(e instanceof Error ? e.message : "Failed to reset password");
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -316,7 +438,15 @@ export function UserProfileSidebar() {
       </div>
 
       {/* Change Password Dialog */}
-      <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
+      <Dialog
+        open={changePasswordOpen}
+        onOpenChange={(open) => {
+          setChangePasswordOpen(open);
+          if (!open) {
+            resetPasswordDialog();
+          }
+        }}
+      >
         <DialogContent
           className="w-11/12 sm:w-full max-w-[425px] p-6"
           hiddenTitle="Change password"
@@ -328,65 +458,205 @@ export function UserProfileSidebar() {
               <p className="text-xs text-black">{pwError}</p>
             </div>
           )}
+          {pwSuccess && (
+            <div className="bg-green-100 rounded-md p-2 border border-green-200 mb-2">
+              <p className="text-xs text-green-900">{pwSuccess}</p>
+            </div>
+          )}
           <div className="space-y-3">
-            <div>
-              <label className="text-xs sm:text-sm text-slate-700 block mb-1">Old Password</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-                className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
-              />
-            </div>
-            <div>
-              <label className="text-xs sm:text-sm font-medium text-slate-700 flex items-center gap-2 mb-1">
-                New Password
-                <InfoTooltip text="Password must be at least 8 characters and include lowercase, uppercase, number, and special character" />
-              </label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
-              />
-            </div>
-            <div>
-              <label className="text-xs sm:text-sm font-medium text-slate-700 block mb-1">
-                Confirm Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showConfirmPw ? "text" : "password"}
-                  placeholder="••••••••"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 pr-10 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPw(!showConfirmPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                >
-                  {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
+            {forgotPasswordStep === "idle" ? (
+              <>
+                <div>
+                  <label className="text-xs sm:text-sm text-slate-700 block mb-1">Old Password</label>
+                  <div className="relative">
+                    <input
+                      type={showOldPw ? "text" : "password"}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      name="change-password-current"
+                      data-lpignore="true"
+                      value={oldPassword}
+                      onChange={(e) => setOldPassword(e.target.value)}
+                      className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 pr-10 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowOldPw(!showOldPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      aria-label={showOldPw ? "Hide old password" : "Show old password"}
+                    >
+                      {showOldPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs sm:text-sm font-medium text-slate-700 flex items-center gap-2 mb-1">
+                    New Password
+                    <InfoTooltip text="Password must be at least 8 characters and include lowercase, uppercase, number, and special character" />
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewPw ? "text" : "password"}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      name="change-password-new"
+                      data-lpignore="true"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 pr-10 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPw(!showNewPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      aria-label={showNewPw ? "Hide new password" : "Show new password"}
+                    >
+                      {showNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs sm:text-sm font-medium text-slate-700 block mb-1">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPw ? "text" : "password"}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      name="change-password-confirm"
+                      data-lpignore="true"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 pr-10 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPw(!showConfirmPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      aria-label={showConfirmPw ? "Hide confirm password" : "Show confirm password"}
+                    >
+                      {showConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-slate-700">
+                  Enter the reset code sent to {user.email}, then choose a new password.
+                </div>
+                <div>
+                  <label className="text-xs sm:text-sm text-slate-700 block mb-1">Verification Code</label>
+                  <input
+                    type="text"
+                    placeholder="Enter code"
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value)}
+                    className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs sm:text-sm font-medium text-slate-700 flex items-center gap-2 mb-1">
+                    New Password
+                    <InfoTooltip text="Password must be at least 8 characters and include lowercase, uppercase, number, and special character" />
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showResetNewPw ? "text" : "password"}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      name="reset-password-new"
+                      data-lpignore="true"
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 pr-10 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResetNewPw(!showResetNewPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      aria-label={showResetNewPw ? "Hide new reset password" : "Show new reset password"}
+                    >
+                      {showResetNewPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs sm:text-sm font-medium text-slate-700 block mb-1">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showResetConfirmPw ? "text" : "password"}
+                      placeholder="••••••••"
+                      autoComplete="new-password"
+                      name="reset-password-confirm"
+                      data-lpignore="true"
+                      value={resetConfirmPassword}
+                      onChange={(e) => setResetConfirmPassword(e.target.value)}
+                      className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 pr-10 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowResetConfirmPw(!showResetConfirmPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      aria-label={showResetConfirmPw ? "Hide confirm reset password" : "Show confirm reset password"}
+                    >
+                      {showResetConfirmPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-          <div className="flex gap-4 mt-6 flex-col sm:flex-row justify-end">
+          <div className="flex gap-4 mt-6 flex-col sm:flex-row sm:items-center sm:justify-between">
             <button
-              onClick={() => setChangePasswordOpen(false)}
+              type="button"
+              onClick={
+                forgotPasswordStep === "idle"
+                  ? handleForgotPassword
+                  : () => {
+                      setForgotPasswordStep("idle");
+                      setPwError("");
+                      setPwSuccess("");
+                      setResetCode("");
+                      setResetNewPassword("");
+                      setResetConfirmPassword("");
+                      setShowResetNewPw(false);
+                      setShowResetConfirmPw(false);
+                    }
+              }
+              className="text-left text-sm text-brand-blue hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isChangingPassword || isResettingPassword}
+            >
+              {forgotPasswordStep === "idle" ? "Forgot Password?" : "Back To Change Password"}
+            </button>
+            <div className="flex gap-4 flex-col sm:flex-row justify-end">
+            <button
+              onClick={() => {
+                setChangePasswordOpen(false);
+                resetPasswordDialog();
+              }}
               className="rounded-md border border-slate-200 px-4 py-2 text-sm sm:text-base hover:bg-slate-50"
+              disabled={isChangingPassword || isResettingPassword}
             >
               Cancel
             </button>
             <button
-              onClick={handleChangePassword}
+              onClick={forgotPasswordStep === "idle" ? handleChangePassword : handleConfirmForgotPassword}
               className="bg-brand-blue hover:bg-brand-pink text-white rounded-md px-4 py-2 text-sm sm:text-base transition-colors"
+              disabled={isChangingPassword || isResettingPassword}
             >
-              Confirm
+              {isChangingPassword || isResettingPassword
+                ? forgotPasswordStep === "idle"
+                  ? "Updating..."
+                  : "Submitting..."
+                : forgotPasswordStep === "idle"
+                  ? "Confirm"
+                  : "Reset Password"}
             </button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

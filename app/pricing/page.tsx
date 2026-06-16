@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { apiFetch } from "@/lib/utils";
 import {
   Check,
   X,
@@ -115,7 +116,7 @@ export default function PricingPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/bland-call", {
+      const response = await apiFetch("/api/bland-call", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

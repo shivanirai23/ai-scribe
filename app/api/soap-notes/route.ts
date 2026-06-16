@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { hikigai } from "@/lib/hikigai";
+import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
+
+export const maxDuration = 300;
 
 interface SoapNotesRequest {
   message?: string;
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
       ? { message, patient_context: body.patient_context.trim() }
       : { message };
 
-    const agentResponse = await hikigai.invokeAgent("soap-notes-agent", input);
+    const agentResponse = await hikigai.invokeAgent("soap-notes-agent", input, HIKIGAI_AGENT_TIMEOUT_MS);
     // console.log("[soap-notes-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const output = normalizeSoapOutput(agentResponse);

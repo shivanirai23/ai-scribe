@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { Mic, Play, Pause } from "lucide-react";
-import { formatTime } from "@/lib/utils";
+import { formatTime, withBasePath } from "@/lib/utils";
 
 interface RecorderPanelProps {
   visitId: string | null;
@@ -46,7 +46,7 @@ export function RecorderPanel({
             className="flex flex-col items-center h-full justify-center gap-6"
           >
             <Image
-              src="/vt_img.png"
+              src={withBasePath("/vt_img.png")}
               alt="Visit illustration"
               width={400}
               height={400}
@@ -73,34 +73,34 @@ export function RecorderPanel({
     : "bg-brand-green";
 
   return (
-    <div className="bg-white rounded-2xl p-6 flex justify-center items-center shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-      <div className="flex flex-col items-center h-full">
+    <div className="mt-4 sm:mt-0 bg-white rounded-2xl p-5 sm:p-6 flex justify-center items-start sm:items-center min-h-[240px] sm:min-h-[280px] shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
+      <div className="flex flex-col items-center w-full">
         {/* Mic circle with pulse */}
-        <div className="relative mb-8">
+        <div className="relative mb-5 sm:mb-8">
           <div
-            className={`h-28 w-28 rounded-full ${micBgColor} flex items-center justify-center shadow-lg relative z-10`}
+            className={`h-20 w-20 sm:h-28 sm:w-28 rounded-full ${micBgColor} flex items-center justify-center shadow-lg`}
           >
             {isRecording ? (
               isPaused ? (
-                <Play className="h-12 w-12 text-white" />
+                <Play className="h-9 w-9 sm:h-12 sm:w-12 text-white" />
               ) : (
-                <Pause className="h-12 w-12 text-white" />
+                <Pause className="h-9 w-9 sm:h-12 sm:w-12 text-white" />
               )
             ) : (
-              <Mic className="h-12 w-12 text-white" />
+              <Mic className="h-9 w-9 sm:h-12 sm:w-12 text-white" />
             )}
           </div>
         </div>
 
         {/* Connection status or timer */}
         {!isRecording && (
-          <div className="text-base text-slate-500 mb-6">
+          <div className="text-base text-slate-500 mb-5 sm:mb-6">
             {isConnecting ? "Connecting..." : isConnected ? "Connected" : "Disconnected"}
           </div>
         )}
 
         {isRecording && (
-          <div className="text-xl font-mono mb-6 text-slate-700">
+          <div className="text-xl font-mono mb-5 sm:mb-6 text-slate-700">
             {formatTime(recordingTime)}
             {isSpeechDetected && (
               <span className="text-brand-green ml-2 text-base">(Speech detected)</span>

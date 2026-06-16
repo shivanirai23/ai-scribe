@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { hikigai } from "@/lib/hikigai";
+import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
+
+export const maxDuration = 300;
 
 interface VisitNotesRequest {
   message?: string;
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
       ? { message, speciality: body.speciality.trim() }
       : { message, speciality: "general" };
 
-    const agentResponse = await hikigai.invokeAgent("visit-notes-agent", input);
+    const agentResponse = await hikigai.invokeAgent("visit-notes-agent", input, HIKIGAI_AGENT_TIMEOUT_MS);
     console.log("\n [visit-notes-agent] raw invoke output:", JSON.stringify(agentResponse));
     const visitNotes = extractVisitNotes(agentResponse);
 

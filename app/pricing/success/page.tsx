@@ -6,6 +6,7 @@ import Image from "next/image";
 import { ArrowLeft, Check, Loader2 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { setUser } from "@/store/slices/userSlice";
+import { apiFetch } from "@/lib/utils";
 
 function PaymentSuccessContent() {
   const searchParams = useSearchParams();
@@ -21,7 +22,7 @@ function PaymentSuccessContent() {
 
     const verifySession = async () => {
       try {
-        const res = await fetch("/api/stripe/verify-session", {
+        const res = await apiFetch("/api/stripe/verify-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId }),
@@ -43,7 +44,7 @@ function PaymentSuccessContent() {
 
       const poll = async () => {
         try {
-          const res = await fetch("/api/stripe/subscription-status");
+          const res = await apiFetch("/api/stripe/subscription-status");
           const data = await res.json();
           if (res.ok && data.upgraded) {
             setVerified(true);

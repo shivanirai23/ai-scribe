@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { hikigai } from "@/lib/hikigai";
+import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
+
+export const maxDuration = 300;
 
 interface FollowUpRequest {
   message?: string;
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
     const agentResponse = await hikigai.invokeAgent("follow-up-agent", {
       message,
       current_date,
-    });
+    }, HIKIGAI_AGENT_TIMEOUT_MS);
     // console.log("[follow-up-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const follow_ups = normalizeFollowUps(agentResponse);
