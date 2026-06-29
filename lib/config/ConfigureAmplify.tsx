@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
 import { configureCognitoAuth } from "@/lib/auth/cognito";
 
-export function ConfigureAmplify() {
-  useEffect(() => {
-    configureCognitoAuth();
-  }, []);
+if (typeof window !== "undefined") {
+  configureCognitoAuth();
+}
 
+export function ConfigureAmplify() {
   return null;
 }

@@ -63,9 +63,9 @@ const MAX_UTTERANCE_SEC = 3.0;
 const MIN_UTTERANCE_SEC = 0.18;
 const SILENCE_FLUSH_SEC = 0.8;
 const SPEECH_THRESHOLD = 0.01;
-const KEEPALIVE_INTERVAL_MS = 10_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1500;
+const PCM_MIME_TYPE = "audio/pcm;rate=16000";
 
 interface LiveConfigResponse {
   baseUrl: string;
@@ -80,7 +80,7 @@ interface LiveConfigResponse {
     basepathEnv?: string | null;
     usingFallbacks?: {
       projectId?: boolean;
-      platformUrl?: boolean;
+      backendUrl?: boolean;
     };
     hasApiKey?: boolean;
   };
@@ -93,43 +93,13 @@ function createSessionId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function encodeWav(float32Chunks: Float32Array[], sampleRate: number) {
-  let totalSamples = 0;
-  for (const chunk of float32Chunks) {
-    totalSamples += chunk.length;
-  }
-
-  const dataBytes = totalSamples * 2;
-  const buffer = new ArrayBuffer(44 + dataBytes);
+function float32ToPcmArrayBuffer(chunk: Float32Array) {
+  const buffer = new ArrayBuffer(chunk.length * 2);
   const view = new DataView(buffer);
 
-  const writeString = (offset: number, value: string) => {
-    for (let i = 0; i < value.length; i++) {
-      view.setUint8(offset + i, value.charCodeAt(i));
-    }
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + dataBytes, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(36, "data");
-  view.setUint32(40, dataBytes, true);
-
-  let offset = 44;
-  for (const chunk of float32Chunks) {
-    for (let i = 0; i < chunk.length; i++) {
-      const sample = Math.max(-1, Math.min(1, chunk[i]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
+  for (let i = 0; i < chunk.length; i++) {
+    const sample = Math.max(-1, Math.min(1, chunk[i]));
+    view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
 
   return buffer;
@@ -210,9 +180,8 @@ export default function RecordingPage() {
   const liveDraftRef = useRef("");
 
   const wsRef = useRef<WebSocket | null>(null);
-  const keepaliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const pendingResponseRef = useRef<string[]>([]);
+  const turnActiveRef = useRef(false);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const manualSocketCloseRef = useRef(false);
@@ -253,16 +222,21 @@ export default function RecordingPage() {
         micStreamRef.current = null;
       }
 
-      if (keepaliveTimerRef.current) {
-        clearInterval(keepaliveTimerRef.current);
-        keepaliveTimerRef.current = null;
-      }
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
 
       const socket = wsRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        manualSocketCloseRef.current = true;
+        try {
+          socket.send(JSON.stringify({ type: "end" }));
+          socket.send(JSON.stringify({ type: "disconnect" }));
+        } catch {
+          // ignore send errors during cleanup
+        }
+      }
       if (socket) {
         manualSocketCloseRef.current = true;
         socket.onopen = null;
@@ -287,13 +261,6 @@ export default function RecordingPage() {
     });
   };
 
-  const stopKeepalive = () => {
-    if (keepaliveTimerRef.current) {
-      clearInterval(keepaliveTimerRef.current);
-      keepaliveTimerRef.current = null;
-    }
-  };
-
   const stopReconnectTimer = () => {
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -301,13 +268,42 @@ export default function RecordingPage() {
     }
   };
 
-  const startKeepalive = () => {
-    stopKeepalive();
-    keepaliveTimerRef.current = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "keepalive" }));
-      }
-    }, KEEPALIVE_INTERVAL_MS);
+  const sendLiveFrame = (payload: Record<string, unknown>) => {
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    socket.send(JSON.stringify(payload));
+    return true;
+  };
+
+  const startAudioTurn = () => {
+    if (turnActiveRef.current) {
+      return;
+    }
+
+    if (sendLiveFrame({ type: "start", modality: "audio" })) {
+      turnActiveRef.current = true;
+    }
+  };
+
+  const sendPcmDataFrame = (chunk: Float32Array) => {
+    sendLiveFrame({
+      type: "data",
+      modality: "audio",
+      content: arrayBufferToBase64(float32ToPcmArrayBuffer(chunk)),
+      mime_type: PCM_MIME_TYPE,
+    });
+  };
+
+  const endAudioTurn = () => {
+    if (!turnActiveRef.current) {
+      return;
+    }
+
+    sendLiveFrame({ type: "end" });
+    turnActiveRef.current = false;
   };
 
   const resetUtterance = () => {
@@ -320,28 +316,17 @@ export default function RecordingPage() {
   };
 
   const flushUtterance = () => {
-    const buffers = utteranceBufRef.current;
-    const ws = wsRef.current;
-
-    if (!buffers.length || !ws || ws.readyState !== WebSocket.OPEN) {
+    if (!turnActiveRef.current) {
       resetUtterance();
       return;
     }
 
     const uttSeconds = utteranceSamplesRef.current / SAMPLE_RATE;
-    if (uttSeconds < MIN_UTTERANCE_SEC) {
-      resetUtterance();
-      return;
-    }
+    endAudioTurn();
 
-    const wav = encodeWav(buffers, SAMPLE_RATE);
-    ws.send(
-      JSON.stringify({
-        type: "audio",
-        content: arrayBufferToBase64(wav),
-        mime_type: "audio/wav",
-      })
-    );
+    if (uttSeconds < MIN_UTTERANCE_SEC) {
+      setLiveDraft("");
+    }
 
     resetUtterance();
   };
@@ -349,8 +334,18 @@ export default function RecordingPage() {
   const closeLiveSocket = () => {
     manualSocketCloseRef.current = true;
     stopReconnectTimer();
-    stopKeepalive();
+    flushUtterance();
+
     const socket = wsRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ type: "end" }));
+        socket.send(JSON.stringify({ type: "disconnect" }));
+      } catch {
+        // ignore send errors during close
+      }
+    }
+
     if (socket) {
       socket.onopen = null;
       socket.onmessage = null;
@@ -358,7 +353,9 @@ export default function RecordingPage() {
       socket.onclose = null;
       socket.close(1000, "cleanup");
     }
+
     wsRef.current = null;
+    turnActiveRef.current = false;
     dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
   };
 
@@ -376,7 +373,7 @@ export default function RecordingPage() {
       micStreamRef.current = null;
     }
     dispatch(setSpeechDetected(false));
-    resetUtterance();
+    flushUtterance();
   };
 
   const handleAudioProcess = (event: AudioProcessingEvent) => {
@@ -396,9 +393,12 @@ export default function RecordingPage() {
 
     const now = Date.now() / 1000;
     if (isSpeech) {
-      if (!utteranceBufRef.current.length) {
+      if (!turnActiveRef.current) {
+        startAudioTurn();
         firstFrameAtRef.current = now;
       }
+
+      sendPcmDataFrame(input);
       utteranceBufRef.current.push(new Float32Array(input));
       utteranceSamplesRef.current += input.length;
       lastAudioAtRef.current = now;
@@ -411,7 +411,7 @@ export default function RecordingPage() {
       return;
     }
 
-    if (!utteranceBufRef.current.length) {
+    if (!turnActiveRef.current) {
       return;
     }
 
@@ -468,7 +468,7 @@ export default function RecordingPage() {
     reconnectAttemptRef.current = 0;
     dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
     setLiveDraft("");
-    pendingResponseRef.current = [];
+    turnActiveRef.current = false;
 
     try {
       const configResponse = await apiFetch("/api/live-transcriber/config");
@@ -492,7 +492,8 @@ export default function RecordingPage() {
             return;
           }
 
-          const wsUrl = `${activeConfig.baseUrl.replace(/^http/, "ws")}/api/v1/agents/live-transcriber/live`;
+          const agentSlug = activeConfig.agentName || "live-transcriber-agent";
+          const wsUrl = `${activeConfig.baseUrl.replace(/^http/, "ws")}/api/v1/agents/${agentSlug}/live`;
           const socket = new WebSocket(wsUrl);
           wsRef.current = socket;
           let settled = false;
@@ -502,14 +503,13 @@ export default function RecordingPage() {
               JSON.stringify({
                 type: "auth",
                 api_key: activeConfig.apiKey,
-                project_id: activeConfig.projectId,
                 session_id: currentSessionId,
               })
             );
             reconnectAttemptRef.current = 0;
+            turnActiveRef.current = false;
             dispatch(setConnectionState({ isConnected: true, isConnecting: false }));
             setAlerts((prev) => prev.filter((a) => a.type !== "socket-disconnected"));
-            startKeepalive();
             if (!settled) {
               settled = true;
               resolve();
@@ -520,33 +520,40 @@ export default function RecordingPage() {
             try {
               const event = JSON.parse(messageEvent.data) as {
                 type?: string;
-                text?: string;
+                modality?: string;
+                source?: string;
                 content?: string;
                 message?: string;
+                partial?: boolean;
+                finished?: boolean;
               };
 
               const type = event.type || "";
-              const text = event.text || "";
 
-              if (type === "transcript") {
-                setLiveDraft(text);
+              if (
+                type === "data" &&
+                event.modality === "text" &&
+                event.source === "input_transcription" &&
+                typeof event.content === "string"
+              ) {
+                setLiveDraft(event.content);
+
+                if (event.finished === true || event.partial === false) {
+                  const finalText = event.content.trim();
+                  if (finalText) {
+                    dispatch(addTranscription(finalText));
+                  }
+                  setLiveDraft("");
+                }
                 return;
               }
 
-              if (type === "response" && text) {
-                pendingResponseRef.current.push(text);
-                return;
-              }
-
-              if (type === "status" && event.content === "complete") {
-                const finalText = pendingResponseRef.current.join(" ").trim();
-                pendingResponseRef.current = [];
+              if (type === "end") {
+                const finalText = liveDraftRef.current.trim();
                 if (finalText) {
                   dispatch(addTranscription(finalText));
-                } else if (liveDraftRef.current.trim()) {
-                  dispatch(addTranscription(liveDraftRef.current.trim()));
+                  setLiveDraft("");
                 }
-                setLiveDraft("");
                 return;
               }
 
@@ -567,7 +574,7 @@ export default function RecordingPage() {
           };
 
           socket.onclose = (event) => {
-            stopKeepalive();
+            turnActiveRef.current = false;
             dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
             if (recordingRef.current) {
               dispatch(setSpeechDetected(false));
