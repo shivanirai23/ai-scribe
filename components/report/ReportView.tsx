@@ -53,6 +53,21 @@ function buildTranscriptMessage(transcription: string[]) {
     .join("\n");
 }
 
+function getApiError(
+  response: Response,
+  data: { error?: string },
+  fallbackMessage: string
+): string | null {
+  const responseError =
+    typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+
+  if (!response.ok || responseError) {
+    return responseError || fallbackMessage;
+  }
+
+  return null;
+}
+
 function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
@@ -87,18 +102,16 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
       });
 
       const data = (await response.json()) as { visit_notes?: string[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Visit notes retry failed");
+      const apiError = getApiError(response, data, "Visit notes retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const mappedVisitNotes = (data.visit_notes || []).filter((item) => item.trim().length > 0);
       dispatch(
         setReportData({
           ...reportData,
-          visitNotes:
-            mappedVisitNotes.length > 0
-              ? [mappedVisitNotes.join("\n\n")]
-              : ["No visit notes were returned by the agent."],
+          visitNotes: mappedVisitNotes.length > 0 ? [mappedVisitNotes.join("\n\n")] : [],
         })
       );
     } catch (error) {
@@ -130,8 +143,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "SOAP notes retry failed");
+      const apiError = getApiError(response, data, "SOAP notes retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const subjective = data.subjective?.trim() || "";
@@ -177,8 +191,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
           error?: string;
         };
 
-      if (!response.ok) {
-        throw new Error(data.error || "ICD-10 retry failed");
+      const apiError = getApiError(response, data, "ICD-10 retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -215,8 +230,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "CPT retry failed");
+      const apiError = getApiError(response, data, "CPT retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -253,8 +269,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "CPT-2 retry failed");
+      const apiError = getApiError(response, data, "CPT-2 retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -292,8 +309,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "E/M retry failed");
+      const apiError = getApiError(response, data, "E/M retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -315,10 +333,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     }
   };
 
-  const isVisitSummaryMissing =
-    !reportData.visitNotes[0] ||
-    reportData.visitNotes[0].startsWith("Visit notes generation failed:") ||
-    reportData.visitNotes[0] === "No visit notes were returned by the agent.";
+  const isVisitSummaryMissing = !reportData.visitNotes[0];
 
   const soapSections = [
     { key: "subjective", label: "Subjective" },
@@ -340,6 +355,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
               )}
             </div>
           </div>
+          {!!retryErrors.visit && (
+            <p className="text-xs text-rose-600 mb-2">{retryErrors.visit}</p>
+          )}
           <div className="text-justify whitespace-pre-line overflow-y-auto flex-1 min-h-0 pr-4 text-sm text-slate-700">
             {reportData.visitNotes[0] || (
               <p className="text-slate-400 italic">No visit summary available.</p>
@@ -636,8 +654,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { medication?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Medication retry failed");
+      const apiError = getApiError(response, data, "Medication retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const today = new Date().toLocaleDateString("en-US", {
@@ -766,8 +785,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { lab_test?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Lab tests retry failed");
+      const apiError = getApiError(response, data, "Lab tests retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -799,8 +819,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { follow_ups?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Follow-up retry failed");
+      const apiError = getApiError(response, data, "Follow-up retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const firstFollowUp = (data.follow_ups || [])[0];
@@ -888,8 +909,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "Procedures retry failed");
+      const apiError = getApiError(response, data, "Procedures retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -921,8 +943,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { referrals?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Referrals retry failed");
+      const apiError = getApiError(response, data, "Referrals retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -1124,9 +1147,11 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
 
 function TranscriptionTab() {
   const transcription = useAppSelector((s) => s.recording.transcription);
+  const formattedTranscription = useAppSelector((s) => s.recording.formattedTranscription);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
+  const displayTranscription = formattedTranscription ?? transcription;
 
-  const speakerRows = transcription
+  const speakerRows = displayTranscription
     .map((line, index) => {
       const doctorMatch = line.match(/^doctor\s*:\s*(.*)$/i);
       if (doctorMatch) {
@@ -1198,8 +1223,9 @@ export function ReportView() {
   const router = useRouter();
   const pathname = usePathname();
   const isVisitDetailsRoute = withoutBasePath(pathname ?? "") === "/visit-details";
-  const { reportData, reportLoading, visitId, transcription } = useAppSelector((s) => s.recording);
+  const { reportData, reportLoading, visitId, transcription, formattedTranscription } = useAppSelector((s) => s.recording);
   const transcriptMessage = buildTranscriptMessage(transcription);
+  const displayTranscription = formattedTranscription ?? transcription;
   const [showBackWarning, setShowBackWarning] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -1437,10 +1463,10 @@ export function ReportView() {
 
       // 6. Full Transcription
       addSectionHeader("Full Transcription");
-      if (transcription.length === 0) {
+      if (displayTranscription.length === 0) {
         addText("Insufficient content", 10);
       } else {
-        transcription.forEach((text) => addText(text, 10));
+        displayTranscription.forEach((text) => addText(text, 10));
       }
 
       doc.save(`visit-report-${visitId || "draft"}.pdf`);

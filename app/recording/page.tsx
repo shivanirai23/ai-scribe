@@ -19,7 +19,7 @@ import {
   setConnectionState,
   setSpeechDetected,
   setPendingBufferCount,
-  setTranscription,
+  setFormattedTranscription,
 } from "@/store/slices/recordingSlice";
 import { Header, UserProfileSidebar } from "@/components/recording/Header";
 import { AlertBanners } from "@/components/recording/AlertBanners";
@@ -644,41 +644,6 @@ export default function RecordingPage() {
   const handleResume = () => dispatch(resumeRecording());
 
   const generateReportFromMessage = async (rawMessage: string) => {
-    // First, format the transcription using hikigai-transcription-agent
-    let message = rawMessage;
-    try {
-      const formatterResponse = await apiFetch("/api/transcription-formatter", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: rawMessage,
-        }),
-      });
-
-      if (formatterResponse.ok) {
-        const formatterData = (await formatterResponse.json()) as {
-          transcription?: unknown;
-          transcript?: unknown;
-        };
-        const formattedPayload = formatterData.transcription ?? formatterData.transcript;
-        const speakerLines = extractSpeakerLines(formattedPayload);
-
-        if (speakerLines.length > 0) {
-          dispatch(setTranscription(speakerLines));
-          message = speakerLines.join("\n");
-          console.log("[generateReport] Formatted transcription lines:", speakerLines);
-        } else if (typeof formatterData.transcription === "string" && formatterData.transcription.trim()) {
-          message = formatterData.transcription;
-          console.log("[generateReport] Formatted transcription:", message);
-        }
-      }
-    } catch (error) {
-      console.error("[generateReport] Transcription formatter error:", error);
-      // Fall back to raw message if formatter fails
-    }
-
     const callAgentRoute = async <T,>(url: string) => {
       try {
         const response = await apiFetch(url, {
@@ -687,17 +652,20 @@ export default function RecordingPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            message,
+            message: rawMessage,
           }),
         });
 
         const data = (await response.json()) as T & { error?: string };
 
-        if (!response.ok) {
+        const responseError =
+          typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+
+        if (!response.ok || responseError) {
           return {
             ok: false as const,
-            data,
-            error: data.error || `Request failed for ${url}`,
+            data: null,
+            error: responseError || `Request failed for ${url}`,
           };
         }
 
@@ -715,14 +683,67 @@ export default function RecordingPage() {
       }
     };
 
+    const callTranscriptionFormatter = async () => {
+      try {
+        const formatterResponse = await apiFetch("/api/transcription-formatter", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: rawMessage,
+          }),
+        });
+
+        if (!formatterResponse.ok) {
+          const formatterData = (await formatterResponse.json().catch(() => ({}))) as { error?: string };
+          return {
+            ok: false as const,
+            error: formatterData.error || "Transcription formatter failed",
+          };
+        }
+
+        const formatterData = (await formatterResponse.json()) as {
+          transcription?: unknown;
+          transcript?: unknown;
+        };
+        const formattedPayload = formatterData.transcription ?? formatterData.transcript;
+        const speakerLines = extractSpeakerLines(formattedPayload);
+
+        if (speakerLines.length > 0) {
+          dispatch(setFormattedTranscription(speakerLines));
+          console.log("[generateReport] Formatted transcription lines:", speakerLines);
+        } else if (typeof formatterData.transcription === "string" && formatterData.transcription.trim()) {
+          const lines = formatterData.transcription
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0);
+          dispatch(setFormattedTranscription(lines.length > 0 ? lines : [formatterData.transcription]));
+          console.log("[generateReport] Formatted transcription:", formatterData.transcription);
+        }
+
+        return {
+          ok: true as const,
+          error: null,
+        };
+      } catch (error) {
+        console.error("[generateReport] Transcription formatter error:", error);
+        return {
+          ok: false as const,
+          error: error instanceof Error ? error.message : "Transcription formatter failed",
+        };
+      }
+    };
+
     const today = new Date().toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",
       year: "numeric",
     });
 
-    const [visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult] =
+    const [formatterResult, visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult] =
       await Promise.all([
+        callTranscriptionFormatter(),
         callAgentRoute<{
           visit_notes?: string[];
         }>("/api/visit-notes"),
@@ -1050,6 +1071,7 @@ export default function RecordingPage() {
     const mappedLabTests = (labTestData.lab_test || []) as unknown[];
 
     const failedAgents = [
+      formatterResult.ok ? null : `Transcription formatter: ${formatterResult.error}`,
       visitResult.ok ? null : `Visit notes: ${visitResult.error}`,
       soapResult.ok ? null : `SOAP notes: ${soapResult.error}`,
       icdResult.ok ? null : `ICD-10: ${icdResult.error}`,
@@ -1066,12 +1088,9 @@ export default function RecordingPage() {
     dispatch(
       setReportData({
         ...EMPTY_REPORT,
-        visitNotes:
-          mappedVisitNotes.length > 0
-            ? [mappedVisitNotes.join("\n\n")]
-            : visitResult.ok
-              ? ["No visit notes were returned by the agent."]
-              : [`Visit notes generation failed: ${visitResult.error}`],
+        visitNotes: visitResult.ok && mappedVisitNotes.length > 0
+          ? [mappedVisitNotes.join("\n\n")]
+          : [],
         soapNote: {
           subjective: subjective ? { subjective } : {},
           objective: objective ? { objective } : {},
