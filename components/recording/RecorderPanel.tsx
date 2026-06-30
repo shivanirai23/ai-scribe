@@ -105,6 +105,11 @@ export function RecorderPanel({
             {isSpeechDetected && (
               <span className="text-brand-green ml-2 text-base">(Speech detected)</span>
             )}
+            {!isConnected && (
+              <span className="text-yellow-600 ml-2 text-base">
+                {isConnecting ? "(Reconnecting…)" : "(Disconnected)"}
+              </span>
+            )}
           </div>
         )}
 
@@ -120,8 +125,8 @@ export function RecorderPanel({
           ) : (
             <div className="text-sm text-slate-500">
               {isConnecting
-                ? "Preparing live transcription socket..."
-                : "Socket not connected. Please start visit again."}
+                ? "Connection lost. Reconnecting automatically..."
+                : "Socket not connected. Reconnecting automatically..."}
             </div>
           )
         ) : (

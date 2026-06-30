@@ -63,8 +63,8 @@ const MAX_UTTERANCE_SEC = 3.0;
 const MIN_UTTERANCE_SEC = 0.18;
 const SILENCE_FLUSH_SEC = 0.8;
 const SPEECH_THRESHOLD = 0.01;
-const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY_MS = 1500;
+const RECONNECT_MAX_DELAY_MS = 15000;
 const PCM_MIME_TYPE = "audio/pcm;rate=16000";
 
 interface LiveConfigResponse {
@@ -185,6 +185,7 @@ export default function RecordingPage() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const manualSocketCloseRef = useRef(false);
+  const liveSessionActiveRef = useRef(false);
   const liveConfigRef = useRef<LiveConfigResponse | null>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -227,6 +228,7 @@ export default function RecordingPage() {
         reconnectTimerRef.current = null;
       }
 
+      liveSessionActiveRef.current = false;
       const socket = wsRef.current;
       if (socket && socket.readyState === WebSocket.OPEN) {
         manualSocketCloseRef.current = true;
@@ -266,6 +268,37 @@ export default function RecordingPage() {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
+  };
+
+  const shouldKeepLiveSocket = () =>
+    liveSessionActiveRef.current && !manualSocketCloseRef.current;
+
+  const scheduleLiveReconnect = (connect: () => Promise<void>) => {
+    if (!shouldKeepLiveSocket()) {
+      dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
+      return;
+    }
+
+    reconnectAttemptRef.current += 1;
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * Math.min(reconnectAttemptRef.current, 10),
+      RECONNECT_MAX_DELAY_MS
+    );
+    dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
+    pushAlert("socket-disconnected", "socket-reconnecting");
+
+    stopReconnectTimer();
+    reconnectTimerRef.current = setTimeout(async () => {
+      if (!shouldKeepLiveSocket()) {
+        return;
+      }
+
+      try {
+        await connect();
+      } catch {
+        scheduleLiveReconnect(connect);
+      }
+    }, delay);
   };
 
   const sendLiveFrame = (payload: Record<string, unknown>) => {
@@ -332,6 +365,7 @@ export default function RecordingPage() {
   };
 
   const closeLiveSocket = () => {
+    liveSessionActiveRef.current = false;
     manualSocketCloseRef.current = true;
     stopReconnectTimer();
     flushUtterance();
@@ -465,24 +499,13 @@ export default function RecordingPage() {
   const connectLiveSocket = async () => {
     stopReconnectTimer();
     manualSocketCloseRef.current = false;
+    liveSessionActiveRef.current = true;
     reconnectAttemptRef.current = 0;
     dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
     setLiveDraft("");
     turnActiveRef.current = false;
 
-    try {
-      const configResponse = await apiFetch("/api/live-transcriber/config");
-      const config = (await configResponse.json()) as LiveConfigResponse;
-      liveConfigRef.current = config;
-
-      if (!configResponse.ok) {
-        throw new Error(config.error || "Failed to load live transcriber config");
-      }
-
-      const sessionId = createSessionId();
-      sessionIdRef.current = sessionId;
-
-      const openSocket = () =>
+    const openSocket = () =>
         new Promise<void>((resolve, reject) => {
           const activeConfig = liveConfigRef.current;
           const currentSessionId = sessionIdRef.current;
@@ -573,49 +596,64 @@ export default function RecordingPage() {
             }
           };
 
-          socket.onclose = (event) => {
+          socket.onclose = () => {
+            if (wsRef.current === socket) {
+              wsRef.current = null;
+            }
+
             turnActiveRef.current = false;
             dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
             if (recordingRef.current) {
               dispatch(setSpeechDetected(false));
             }
 
-            if (manualSocketCloseRef.current || event.code === 1000 || event.code === 1001) {
+            if (manualSocketCloseRef.current) {
               return;
             }
 
-            const canReconnect =
-              reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS && !!liveConfigRef.current;
-
-            if (!canReconnect) {
-              pushAlert("socket-disconnected", "socket-reconnect-exhausted");
-              return;
-            }
-
-            reconnectAttemptRef.current += 1;
-            const delay = Math.min(
-              RECONNECT_BASE_DELAY_MS * reconnectAttemptRef.current,
-              8000
-            );
-            dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
-            pushAlert("socket-disconnected", `socket-reconnect-${reconnectAttemptRef.current}`);
-
-            stopReconnectTimer();
-            reconnectTimerRef.current = setTimeout(async () => {
-              try {
-                await openSocket();
-              } catch {
-                // onclose/onerror handlers will continue retry flow.
-              }
-            }, delay);
+            scheduleLiveReconnect(attemptLiveConnection);
           };
         });
 
+    const attemptLiveConnection = async () => {
+      if (!shouldKeepLiveSocket()) {
+        return;
+      }
+
+      dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
+
+      if (!liveConfigRef.current) {
+        const configResponse = await apiFetch("/api/live-transcriber/config");
+        const config = (await configResponse.json()) as LiveConfigResponse;
+        liveConfigRef.current = config;
+
+        if (!configResponse.ok) {
+          throw new Error(config.error || "Failed to load live transcriber config");
+        }
+      }
+
+      if (!sessionIdRef.current) {
+        sessionIdRef.current = createSessionId();
+      }
+
       await openSocket();
+    };
+
+    try {
+      await attemptLiveConnection();
     } catch (error) {
+      if (!shouldKeepLiveSocket()) {
+        dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
+        return;
+      }
+
       const message = error instanceof Error ? error.message : "Unable to connect live socket";
       pushAlert("socket-disconnected", `socket-connect:${message}`);
-      dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
+
+      // Config fetch failures never reach onclose; socket failures are handled there.
+      if (!wsRef.current) {
+        scheduleLiveReconnect(attemptLiveConnection);
+      }
     }
   };
 
