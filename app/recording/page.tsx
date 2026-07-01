@@ -59,6 +59,7 @@ const EMPTY_REPORT: ReportData = {
 const SAMPLE_RATE = 16000;
 const CHUNK_SIZE = 4096;
 const SPEECH_THRESHOLD = 0.01;
+const KEEPALIVE_MS = 15_000;
 const RECONNECT_BASE_DELAY_MS = 1500;
 const RECONNECT_MAX_DELAY_MS = 15000;
 const PCM_MIME_TYPE = "audio/pcm;rate=16000";
@@ -99,6 +100,33 @@ function float32ToPcmArrayBuffer(chunk: Float32Array) {
   }
 
   return buffer;
+}
+
+function resampleTo16k(input: Float32Array, inputRate: number) {
+  if (inputRate === SAMPLE_RATE) {
+    return input;
+  }
+
+  const ratio = inputRate / SAMPLE_RATE;
+  const outLen = Math.max(1, Math.round(input.length / ratio));
+  const out = new Float32Array(outLen);
+
+  for (let i = 0; i < outLen; i++) {
+    const idx = i * ratio;
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(i0 + 1, input.length - 1);
+    out[i] = input[i0] + (input[i1] - input[i0]) * (idx - i0);
+  }
+
+  return out;
+}
+
+let silentPcmBase64: string | null = null;
+function getSilentPcmBase64() {
+  if (silentPcmBase64 === null) {
+    silentPcmBase64 = arrayBufferToBase64(new ArrayBuffer((SAMPLE_RATE / 10) * 2));
+  }
+  return silentPcmBase64;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
@@ -183,6 +211,10 @@ export default function RecordingPage() {
   const manualSocketCloseRef = useRef(false);
   const liveSessionActiveRef = useRef(false);
   const liveConfigRef = useRef<LiveConfigResponse | null>(null);
+  const currentTurnRef = useRef("");
+  const keepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastDataSentRef = useRef(0);
+  const lastServerMsgRef = useRef<number | null>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -219,6 +251,7 @@ export default function RecordingPage() {
         reconnectTimerRef.current = null;
       }
 
+      stopKeepalive();
       liveSessionActiveRef.current = false;
       manualSocketCloseRef.current = true;
       const socket = wsRef.current;
@@ -262,6 +295,63 @@ export default function RecordingPage() {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
+  };
+
+  const stopKeepalive = () => {
+    if (keepaliveRef.current) {
+      clearInterval(keepaliveRef.current);
+      keepaliveRef.current = null;
+    }
+  };
+
+  const startKeepalive = () => {
+    stopKeepalive();
+    keepaliveRef.current = setInterval(() => {
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      if (audioStreamActiveRef.current) {
+        return;
+      }
+      if (Date.now() - lastDataSentRef.current < KEEPALIVE_MS) {
+        return;
+      }
+      if (lastServerMsgRef.current && Date.now() - lastServerMsgRef.current < 2000) {
+        return;
+      }
+
+      socket.send(JSON.stringify({ type: "start", modality: "audio" }));
+      socket.send(
+        JSON.stringify({
+          type: "data",
+          modality: "audio",
+          content: getSilentPcmBase64(),
+          mime_type: PCM_MIME_TYPE,
+        })
+      );
+      socket.send(JSON.stringify({ type: "end" }));
+      lastDataSentRef.current = Date.now();
+    }, KEEPALIVE_MS);
+  };
+
+  const primeLiveSession = () => {
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN || audioStreamActiveRef.current) {
+      return;
+    }
+
+    socket.send(JSON.stringify({ type: "start", modality: "audio" }));
+    socket.send(
+      JSON.stringify({
+        type: "data",
+        modality: "audio",
+        content: getSilentPcmBase64(),
+        mime_type: PCM_MIME_TYPE,
+      })
+    );
+    socket.send(JSON.stringify({ type: "end" }));
+    lastDataSentRef.current = Date.now();
   };
 
   const shouldKeepLiveSocket = () =>
@@ -316,12 +406,15 @@ export default function RecordingPage() {
   };
 
   const sendPcmDataFrame = (chunk: Float32Array) => {
-    sendLiveFrame({
+    const sent = sendLiveFrame({
       type: "data",
       modality: "audio",
       content: arrayBufferToBase64(float32ToPcmArrayBuffer(chunk)),
       mime_type: PCM_MIME_TYPE,
     });
+    if (sent) {
+      lastDataSentRef.current = Date.now();
+    }
   };
 
   const endRecordingStream = () => {
@@ -337,6 +430,7 @@ export default function RecordingPage() {
     liveSessionActiveRef.current = false;
     manualSocketCloseRef.current = true;
     stopReconnectTimer();
+    stopKeepalive();
     endRecordingStream();
 
     const socket = wsRef.current;
@@ -384,21 +478,29 @@ export default function RecordingPage() {
       return;
     }
 
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
     if (!audioStreamActiveRef.current) {
       startRecordingStream();
     }
 
     const input = event.inputBuffer.getChannelData(0);
+    const inputRate = audioCtxRef.current?.sampleRate ?? SAMPLE_RATE;
+    const pcm16k = resampleTo16k(new Float32Array(input), inputRate);
+
     let sumSq = 0;
-    for (let i = 0; i < input.length; i++) {
-      sumSq += input[i] * input[i];
+    for (let i = 0; i < pcm16k.length; i++) {
+      sumSq += pcm16k[i] * pcm16k[i];
     }
-    const rms = Math.sqrt(sumSq / input.length);
+    const rms = Math.sqrt(sumSq / pcm16k.length);
     const isSpeech = rms >= SPEECH_THRESHOLD;
     dispatch(setSpeechDetected(isSpeech));
 
     if (audioStreamActiveRef.current) {
-      sendPcmDataFrame(input);
+      sendPcmDataFrame(pcm16k);
     }
   };
 
@@ -452,7 +554,7 @@ export default function RecordingPage() {
             return;
           }
 
-          const agentSlug = activeConfig.agentName || "live-transcriber-agent";
+          const agentSlug = activeConfig.agentName || "live-transcription-agent";
           const wsUrl = `${activeConfig.baseUrl.replace(/^http/, "ws")}/api/v1/agents/${agentSlug}/live`;
           const socket = new WebSocket(wsUrl);
           wsRef.current = socket;
@@ -464,15 +566,22 @@ export default function RecordingPage() {
                 type: "auth",
                 api_key: activeConfig.apiKey,
                 session_id: currentSessionId,
+                project_id: activeConfig.projectId,
               })
             );
             reconnectAttemptRef.current = 0;
             audioStreamActiveRef.current = false;
+            lastServerMsgRef.current = Date.now();
+            lastDataSentRef.current = Date.now();
             dispatch(setConnectionState({ isConnected: true, isConnecting: false }));
             setAlerts((prev) => prev.filter((a) => a.type !== "socket-disconnected"));
-            if (recordingRef.current && !pausedRef.current) {
-              startRecordingStream();
-            }
+            setTimeout(() => {
+              primeLiveSession();
+              if (recordingRef.current && !pausedRef.current) {
+                startRecordingStream();
+              }
+            }, 80);
+            startKeepalive();
             if (!settled) {
               settled = true;
               resolve();
@@ -480,6 +589,7 @@ export default function RecordingPage() {
           };
 
           socket.onmessage = (messageEvent) => {
+            lastServerMsgRef.current = Date.now();
             try {
               const event = JSON.parse(messageEvent.data) as {
                 type?: string;
@@ -487,36 +597,30 @@ export default function RecordingPage() {
                 source?: string;
                 content?: string;
                 message?: string;
-                partial?: boolean;
-                finished?: boolean;
               };
 
               const type = event.type || "";
 
-              if (
-                type === "data" &&
-                event.modality === "text" &&
-                event.source === "input_transcription" &&
-                typeof event.content === "string"
-              ) {
-                setLiveDraft(event.content);
-
-                if (event.finished === true || event.partial === false) {
-                  const finalText = event.content.trim();
-                  if (finalText) {
-                    dispatch(addTranscription(finalText));
-                  }
-                  setLiveDraft("");
+              if (type === "data" && event.modality === "text") {
+                if (event.source === "output_transcription") {
+                  return;
                 }
+                if (event.source !== "input_transcription" || typeof event.content !== "string") {
+                  return;
+                }
+
+                currentTurnRef.current = event.content;
+                setLiveDraft(event.content);
                 return;
               }
 
               if (type === "end") {
-                const finalText = liveDraftRef.current.trim();
+                const finalText = currentTurnRef.current.trim() || liveDraftRef.current.trim();
+                currentTurnRef.current = "";
                 if (finalText) {
                   dispatch(addTranscription(finalText));
-                  setLiveDraft("");
                 }
+                setLiveDraft("");
                 return;
               }
 
@@ -541,6 +645,7 @@ export default function RecordingPage() {
               wsRef.current = null;
             }
 
+            stopKeepalive();
             audioStreamActiveRef.current = false;
             dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
             if (recordingRef.current) {
@@ -627,8 +732,16 @@ export default function RecordingPage() {
     startRecordingStream();
   };
 
-  const handlePause = () => dispatch(pauseRecording());
-  const handleResume = () => dispatch(resumeRecording());
+  const handlePause = () => {
+    endRecordingStream();
+    dispatch(pauseRecording());
+  };
+
+  const handleResume = () => {
+    audioStreamActiveRef.current = false;
+    currentTurnRef.current = "";
+    dispatch(resumeRecording());
+  };
 
   const generateReportFromMessage = async (rawMessage: string) => {
     const callAgentRoute = async <T,>(url: string) => {
@@ -1124,10 +1237,11 @@ export default function RecordingPage() {
     stopAudioCapture();
     closeLiveSocket();
 
-    const draft = liveDraftRef.current.trim();
+    const draft = (currentTurnRef.current || liveDraftRef.current).trim();
     if (draft) {
       dispatch(addTranscription(draft));
       setLiveDraft("");
+      currentTurnRef.current = "";
     }
 
     const transcriptMessage = [...recording.transcription, ...(draft ? [draft] : [])]
@@ -1250,8 +1364,8 @@ export default function RecordingPage() {
           isSpeechDetected={recording.isSpeechDetected}
           isPaused={recording.isPaused}
           transcriptionText={recording.transcription}
-          onPause={() => dispatch(pauseRecording())}
-          onResume={() => dispatch(resumeRecording())}
+          onPause={handlePause}
+          onResume={handleResume}
           onStop={handleStop}
         />
       )}
