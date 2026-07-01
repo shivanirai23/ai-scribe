@@ -18,7 +18,6 @@ import {
   setReportData,
   setConnectionState,
   setSpeechDetected,
-  setPendingBufferCount,
   setFormattedTranscription,
 } from "@/store/slices/recordingSlice";
 import { Header, UserProfileSidebar } from "@/components/recording/Header";
@@ -59,9 +58,6 @@ const EMPTY_REPORT: ReportData = {
 
 const SAMPLE_RATE = 16000;
 const CHUNK_SIZE = 4096;
-const MAX_UTTERANCE_SEC = 3.0;
-const MIN_UTTERANCE_SEC = 0.18;
-const SILENCE_FLUSH_SEC = 0.8;
 const SPEECH_THRESHOLD = 0.01;
 const RECONNECT_BASE_DELAY_MS = 1500;
 const RECONNECT_MAX_DELAY_MS = 15000;
@@ -181,7 +177,7 @@ export default function RecordingPage() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const turnActiveRef = useRef(false);
+  const audioStreamActiveRef = useRef(false);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const manualSocketCloseRef = useRef(false);
@@ -193,11 +189,6 @@ export default function RecordingPage() {
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const recordingRef = useRef(false);
   const pausedRef = useRef(false);
-  const utteranceBufRef = useRef<Float32Array[]>([]);
-  const utteranceSamplesRef = useRef(0);
-  const firstFrameAtRef = useRef<number | null>(null);
-  const lastAudioAtRef = useRef<number | null>(null);
-  const silenceSinceRef = useRef<number | null>(null);
 
   useEffect(() => {
     recordingRef.current = recording.isRecording;
@@ -229,11 +220,14 @@ export default function RecordingPage() {
       }
 
       liveSessionActiveRef.current = false;
+      manualSocketCloseRef.current = true;
       const socket = wsRef.current;
       if (socket && socket.readyState === WebSocket.OPEN) {
-        manualSocketCloseRef.current = true;
         try {
-          socket.send(JSON.stringify({ type: "end" }));
+          if (audioStreamActiveRef.current) {
+            socket.send(JSON.stringify({ type: "end" }));
+            audioStreamActiveRef.current = false;
+          }
           socket.send(JSON.stringify({ type: "disconnect" }));
         } catch {
           // ignore send errors during cleanup
@@ -248,8 +242,8 @@ export default function RecordingPage() {
         socket.close(1000, "cleanup");
       }
       wsRef.current = null;
+      audioStreamActiveRef.current = false;
       dispatch(setSpeechDetected(false));
-      dispatch(setPendingBufferCount(0));
       dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
     };
   }, [dispatch]);
@@ -311,13 +305,13 @@ export default function RecordingPage() {
     return true;
   };
 
-  const startAudioTurn = () => {
-    if (turnActiveRef.current) {
+  const startRecordingStream = () => {
+    if (audioStreamActiveRef.current) {
       return;
     }
 
     if (sendLiveFrame({ type: "start", modality: "audio" })) {
-      turnActiveRef.current = true;
+      audioStreamActiveRef.current = true;
     }
   };
 
@@ -330,50 +324,24 @@ export default function RecordingPage() {
     });
   };
 
-  const endAudioTurn = () => {
-    if (!turnActiveRef.current) {
+  const endRecordingStream = () => {
+    if (!audioStreamActiveRef.current) {
       return;
     }
 
     sendLiveFrame({ type: "end" });
-    turnActiveRef.current = false;
-  };
-
-  const resetUtterance = () => {
-    utteranceBufRef.current = [];
-    utteranceSamplesRef.current = 0;
-    firstFrameAtRef.current = null;
-    lastAudioAtRef.current = null;
-    silenceSinceRef.current = null;
-    dispatch(setPendingBufferCount(0));
-  };
-
-  const flushUtterance = () => {
-    if (!turnActiveRef.current) {
-      resetUtterance();
-      return;
-    }
-
-    const uttSeconds = utteranceSamplesRef.current / SAMPLE_RATE;
-    endAudioTurn();
-
-    if (uttSeconds < MIN_UTTERANCE_SEC) {
-      setLiveDraft("");
-    }
-
-    resetUtterance();
+    audioStreamActiveRef.current = false;
   };
 
   const closeLiveSocket = () => {
     liveSessionActiveRef.current = false;
     manualSocketCloseRef.current = true;
     stopReconnectTimer();
-    flushUtterance();
+    endRecordingStream();
 
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       try {
-        socket.send(JSON.stringify({ type: "end" }));
         socket.send(JSON.stringify({ type: "disconnect" }));
       } catch {
         // ignore send errors during close
@@ -389,11 +357,12 @@ export default function RecordingPage() {
     }
 
     wsRef.current = null;
-    turnActiveRef.current = false;
+    audioStreamActiveRef.current = false;
     dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
   };
 
   const stopAudioCapture = () => {
+    endRecordingStream();
     if (scriptProcessorRef.current) {
       scriptProcessorRef.current.disconnect();
       scriptProcessorRef.current = null;
@@ -407,13 +376,16 @@ export default function RecordingPage() {
       micStreamRef.current = null;
     }
     dispatch(setSpeechDetected(false));
-    flushUtterance();
   };
 
   const handleAudioProcess = (event: AudioProcessingEvent) => {
     if (!recordingRef.current || pausedRef.current) {
       dispatch(setSpeechDetected(false));
       return;
+    }
+
+    if (!audioStreamActiveRef.current) {
+      startRecordingStream();
     }
 
     const input = event.inputBuffer.getChannelData(0);
@@ -425,43 +397,8 @@ export default function RecordingPage() {
     const isSpeech = rms >= SPEECH_THRESHOLD;
     dispatch(setSpeechDetected(isSpeech));
 
-    const now = Date.now() / 1000;
-    if (isSpeech) {
-      if (!turnActiveRef.current) {
-        startAudioTurn();
-        firstFrameAtRef.current = now;
-      }
-
+    if (audioStreamActiveRef.current) {
       sendPcmDataFrame(input);
-      utteranceBufRef.current.push(new Float32Array(input));
-      utteranceSamplesRef.current += input.length;
-      lastAudioAtRef.current = now;
-      silenceSinceRef.current = null;
-      dispatch(setPendingBufferCount(utteranceBufRef.current.length));
-
-      if (utteranceSamplesRef.current / SAMPLE_RATE >= MAX_UTTERANCE_SEC) {
-        flushUtterance();
-      }
-      return;
-    }
-
-    if (!turnActiveRef.current) {
-      return;
-    }
-
-    if (silenceSinceRef.current === null) {
-      silenceSinceRef.current = now;
-    }
-
-    const hasSilenceFlush =
-      silenceSinceRef.current !== null && now - silenceSinceRef.current >= SILENCE_FLUSH_SEC;
-
-    const hasTimeoutFlush =
-      (firstFrameAtRef.current !== null && now - firstFrameAtRef.current >= MAX_UTTERANCE_SEC) ||
-      (lastAudioAtRef.current !== null && now - lastAudioAtRef.current >= SILENCE_FLUSH_SEC);
-
-    if (hasSilenceFlush || hasTimeoutFlush) {
-      flushUtterance();
     }
   };
 
@@ -503,7 +440,7 @@ export default function RecordingPage() {
     reconnectAttemptRef.current = 0;
     dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
     setLiveDraft("");
-    turnActiveRef.current = false;
+    audioStreamActiveRef.current = false;
 
     const openSocket = () =>
         new Promise<void>((resolve, reject) => {
@@ -530,9 +467,12 @@ export default function RecordingPage() {
               })
             );
             reconnectAttemptRef.current = 0;
-            turnActiveRef.current = false;
+            audioStreamActiveRef.current = false;
             dispatch(setConnectionState({ isConnected: true, isConnecting: false }));
             setAlerts((prev) => prev.filter((a) => a.type !== "socket-disconnected"));
+            if (recordingRef.current && !pausedRef.current) {
+              startRecordingStream();
+            }
             if (!settled) {
               settled = true;
               resolve();
@@ -601,7 +541,7 @@ export default function RecordingPage() {
               wsRef.current = null;
             }
 
-            turnActiveRef.current = false;
+            audioStreamActiveRef.current = false;
             dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
             if (recordingRef.current) {
               dispatch(setSpeechDetected(false));
@@ -683,6 +623,8 @@ export default function RecordingPage() {
     }
 
     dispatch(startRecording());
+    recordingRef.current = true;
+    startRecordingStream();
   };
 
   const handlePause = () => dispatch(pauseRecording());
@@ -1178,7 +1120,7 @@ export default function RecordingPage() {
   };
 
   const handleStop = async () => {
-    flushUtterance();
+    recordingRef.current = false;
     stopAudioCapture();
     closeLiveSocket();
 
