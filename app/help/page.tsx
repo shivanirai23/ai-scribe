@@ -126,6 +126,11 @@ export default function HelpCenterPage() {
       return;
     }
 
+    if (!submittedEmail.trim()) {
+      toast.error("Your account email is required to send a help request.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const payload = new FormData();
