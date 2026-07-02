@@ -717,6 +717,29 @@ export default function RecordingPage() {
     await connectLiveSocket();
   };
 
+  // Reconnect live socket when returning to recording with an ongoing visit
+  useEffect(() => {
+    if (
+      recording.recordingMode === "conversational" ||
+      recording.currentView !== "recording" ||
+      !recording.visitId ||
+      recording.isRecording ||
+      recording.isConnected ||
+      recording.isConnecting
+    ) {
+      return;
+    }
+
+    void connectLiveSocket();
+  }, [
+    recording.recordingMode,
+    recording.currentView,
+    recording.visitId,
+    recording.isRecording,
+    recording.isConnected,
+    recording.isConnecting,
+  ]);
+
   const handleStartRecording = async () => {
     if (!recording.isConnected || recording.isConnecting) {
       return;
@@ -1345,6 +1368,7 @@ export default function RecordingPage() {
               isRecording={recording.isRecording}
               isPaused={recording.isPaused}
               hasVisit={!!recording.visitId}
+              hasReport={!!recording.reportData}
               onViewReport={() => dispatch(setCurrentView("report"))}
             />
           </div>

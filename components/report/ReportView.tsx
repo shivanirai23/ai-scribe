@@ -30,7 +30,6 @@ import {
   setReportData,
 } from "@/store/slices/recordingSlice";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 
 function RetryButton({ onClick, isLoading = false }: { onClick: () => void; isLoading?: boolean }) {
@@ -1226,13 +1225,14 @@ export function ReportView() {
   const { reportData, reportLoading, visitId, transcription, formattedTranscription } = useAppSelector((s) => s.recording);
   const transcriptMessage = buildTranscriptMessage(transcription);
   const displayTranscription = formattedTranscription ?? transcription;
-  const [showBackWarning, setShowBackWarning] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportWarning, setExportWarning] = useState("");
 
   const handleBack = () => {
-    setShowBackWarning(true);
+    dispatch(setCurrentView("recording"));
+    if (isVisitDetailsRoute) {
+      router.push("/recording");
+    }
   };
 
   const handleEndVisit = () => {
@@ -1600,53 +1600,6 @@ export function ReportView() {
         </main>
       )}
 
-      {/* Back Warning Dialog */}
-      <Dialog open={showBackWarning} onOpenChange={setShowBackWarning}>
-        <DialogContent
-          className="max-w-md p-6"
-          showClose={false}
-          hiddenTitle="Unsaved changes"
-          hiddenDescription="Warns that going back will discard current visit note edits"
-        >
-          <h2 className="text-lg font-semibold text-slate-700 mb-2">Unsaved Changes</h2>
-          <p className="text-sm text-slate-600 mb-4">
-            You have unsaved changes to the visit notes. Going back will discard these changes.
-          </p>
-          <div className="flex items-center gap-2 mb-4">
-            <input
-              type="checkbox"
-              id="dont-show-again"
-              checked={dontShowAgain}
-              onChange={(e) => setDontShowAgain(e.target.checked)}
-              className="rounded"
-            />
-            <label htmlFor="dont-show-again" className="text-sm text-slate-600">
-              Don&apos;t show this again
-            </label>
-          </div>
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => setShowBackWarning(false)}
-              className="border border-slate-200 rounded-md px-4 py-2 text-sm hover:bg-slate-50"
-            >
-              Stay
-            </button>
-            <button
-              onClick={() => {
-                setShowBackWarning(false);
-                if (isVisitDetailsRoute) {
-                  router.push("/recording");
-                } else {
-                  dispatch(setCurrentView("recording"));
-                }
-              }}
-              className="bg-brand-blue text-white hover:bg-brand-pink rounded-md px-4 py-2 text-sm transition-colors"
-            >
-              Discard &amp; Go Back
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

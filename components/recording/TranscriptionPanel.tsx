@@ -10,6 +10,7 @@ interface TranscriptionPanelProps {
   isRecording: boolean;
   isPaused: boolean;
   hasVisit: boolean;
+  hasReport?: boolean;
   onViewReport?: () => void;
 }
 
@@ -19,6 +20,7 @@ export function TranscriptionPanel({
   isRecording,
   isPaused,
   hasVisit,
+  hasReport = false,
   onViewReport,
 }: TranscriptionPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -38,7 +40,7 @@ export function TranscriptionPanel({
             <span className="inline-block h-2 w-2 rounded-full bg-brand-green animate-pulse" />
           )}
         </h2>
-        {transcription.length > 0 && !isRecording && onViewReport && (
+        {(hasReport || transcription.length > 0) && !isRecording && onViewReport && (
           <button
             onClick={onViewReport}
             className="text-xs text-brand-blue flex items-center gap-1 hover:underline"
@@ -54,7 +56,7 @@ export function TranscriptionPanel({
           <div className="flex items-center justify-center h-full">
             <p className="text-slate-400 italic text-center">Start a visit to proceed</p>
           </div>
-        ) : transcription.length === 0 ? (
+        ) : transcription.length === 0 && !liveDraft ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-slate-400 italic text-center">
               {isRecording ? "Listening..." : "Start recording to see transcription"}
