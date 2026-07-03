@@ -254,8 +254,11 @@ export default function RecordingPage() {
         const formatterData = (await formatterResponse.json()) as {
           transcription?: unknown;
           transcript?: unknown;
+          raw?: { output?: { transcript?: unknown } };
         };
-        const formattedPayload = formatterData.transcription ?? formatterData.transcript;
+        const structuredTranscript =
+          formatterData.transcript ?? formatterData.raw?.output?.transcript ?? null;
+        const formattedPayload = structuredTranscript ?? formatterData.transcription;
         const speakerLines = extractSpeakerLines(formattedPayload);
 
         if (speakerLines.length > 0) {

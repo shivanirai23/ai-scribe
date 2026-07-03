@@ -19,11 +19,13 @@ export async function POST(request: NextRequest) {
     }, HIKIGAI_AGENT_TIMEOUT_MS);
     console.log("[transcription-formatter] raw invoke output:", JSON.stringify(result));
 
-    // Extract the formatted transcription from the agent output
-    const formattedTranscription = result.output?.transcription || result.content || message;
+    const output = result.output as { transcription?: string; transcript?: unknown } | undefined;
+    const formattedTranscription = output?.transcription || result.content || message;
+    const structuredTranscript = output?.transcript ?? null;
 
     return NextResponse.json({
       transcription: formattedTranscription,
+      transcript: structuredTranscript,
       raw: result,
     });
   } catch (error) {
