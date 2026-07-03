@@ -95,7 +95,7 @@ export function RecorderPanel({
         {/* Connection status or timer */}
         {!isRecording && (
           <div className="text-base text-slate-500 mb-5 sm:mb-6">
-            {isConnecting ? "Connecting..." : isConnected ? "Connected" : "Disconnected"}
+            {isConnecting ? "Starting transcription…" : "Ready to record"}
           </div>
         )}
 
@@ -115,20 +115,13 @@ export function RecorderPanel({
 
         {/* Buttons */}
         {!isRecording ? (
-          isConnected ? (
-            <button
-              onClick={onStartRecording}
-              className="bg-brand-green hover:bg-opacity-90 text-white rounded-xl px-6 py-3 text-base font-medium shadow-md hover:shadow-lg transition-all"
-            >
-              Start Recording
-            </button>
-          ) : (
-            <div className="text-sm text-slate-500">
-              {isConnecting
-                ? "Connection lost. Reconnecting automatically..."
-                : "Socket not connected. Reconnecting automatically..."}
-            </div>
-          )
+          <button
+            onClick={onStartRecording}
+            disabled={isConnecting}
+            className="bg-brand-green hover:bg-opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl px-6 py-3 text-base font-medium shadow-md hover:shadow-lg transition-all"
+          >
+            {isConnecting ? "Starting…" : "Start Recording"}
+          </button>
         ) : (
           <div className="flex space-x-4">
             <button

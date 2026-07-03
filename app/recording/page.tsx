@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -30,6 +30,7 @@ import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import type { ReportData } from "@/store/slices/recordingSlice";
 import { apiFetch } from "@/lib/utils";
+import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 
 interface AlertItem {
   type: AlertType;
@@ -55,89 +56,6 @@ const EMPTY_REPORT: ReportData = {
   procedure: { procedure: [] },
   referrals: [],
 };
-
-const SAMPLE_RATE = 16000;
-const CHUNK_SIZE = 4096;
-const SPEECH_THRESHOLD = 0.01;
-const KEEPALIVE_MS = 15_000;
-const RECONNECT_BASE_DELAY_MS = 1500;
-const RECONNECT_MAX_DELAY_MS = 15000;
-const PCM_MIME_TYPE = "audio/pcm;rate=16000";
-
-interface LiveConfigResponse {
-  baseUrl: string;
-  apiKey: string;
-  projectId: string;
-  agentName: string;
-  error?: string;
-  diagnostics?: {
-    requestPath?: string;
-    refererPath?: string;
-    host?: string | null;
-    basepathEnv?: string | null;
-    usingFallbacks?: {
-      projectId?: boolean;
-      backendUrl?: boolean;
-    };
-    hasApiKey?: boolean;
-  };
-}
-
-function createSessionId() {
-  if (typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function float32ToPcmArrayBuffer(chunk: Float32Array) {
-  const buffer = new ArrayBuffer(chunk.length * 2);
-  const view = new DataView(buffer);
-
-  for (let i = 0; i < chunk.length; i++) {
-    const sample = Math.max(-1, Math.min(1, chunk[i]));
-    view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-  }
-
-  return buffer;
-}
-
-function resampleTo16k(input: Float32Array, inputRate: number) {
-  if (inputRate === SAMPLE_RATE) {
-    return input;
-  }
-
-  const ratio = inputRate / SAMPLE_RATE;
-  const outLen = Math.max(1, Math.round(input.length / ratio));
-  const out = new Float32Array(outLen);
-
-  for (let i = 0; i < outLen; i++) {
-    const idx = i * ratio;
-    const i0 = Math.floor(idx);
-    const i1 = Math.min(i0 + 1, input.length - 1);
-    out[i] = input[i0] + (input[i1] - input[i0]) * (idx - i0);
-  }
-
-  return out;
-}
-
-let silentPcmBase64: string | null = null;
-function getSilentPcmBase64() {
-  if (silentPcmBase64 === null) {
-    silentPcmBase64 = arrayBufferToBase64(new ArrayBuffer((SAMPLE_RATE / 10) * 2));
-  }
-  return silentPcmBase64;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
 
 function normalizeSpeaker(value: string) {
   const lower = value.trim().toLowerCase();
@@ -201,85 +119,6 @@ export default function RecordingPage() {
   const [noTranscriptToast, setNoTranscriptToast] = useState(false);
   const [conversationText, setConversationText] = useState("");
   const [liveDraft, setLiveDraft] = useState("");
-  const liveDraftRef = useRef("");
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  const audioStreamActiveRef = useRef(false);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const manualSocketCloseRef = useRef(false);
-  const liveSessionActiveRef = useRef(false);
-  const liveConfigRef = useRef<LiveConfigResponse | null>(null);
-  const currentTurnRef = useRef("");
-  const keepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastDataSentRef = useRef(0);
-  const lastServerMsgRef = useRef<number | null>(null);
-
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const micStreamRef = useRef<MediaStream | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const recordingRef = useRef(false);
-  const pausedRef = useRef(false);
-
-  useEffect(() => {
-    recordingRef.current = recording.isRecording;
-    pausedRef.current = recording.isPaused;
-  }, [recording.isRecording, recording.isPaused]);
-
-  useEffect(() => {
-    liveDraftRef.current = liveDraft;
-  }, [liveDraft]);
-
-  useEffect(() => {
-    return () => {
-      if (scriptProcessorRef.current) {
-        scriptProcessorRef.current.disconnect();
-        scriptProcessorRef.current = null;
-      }
-      if (audioCtxRef.current) {
-        void audioCtxRef.current.close();
-        audioCtxRef.current = null;
-      }
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach((track) => track.stop());
-        micStreamRef.current = null;
-      }
-
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-
-      stopKeepalive();
-      liveSessionActiveRef.current = false;
-      manualSocketCloseRef.current = true;
-      const socket = wsRef.current;
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        try {
-          if (audioStreamActiveRef.current) {
-            socket.send(JSON.stringify({ type: "end" }));
-            audioStreamActiveRef.current = false;
-          }
-          socket.send(JSON.stringify({ type: "disconnect" }));
-        } catch {
-          // ignore send errors during cleanup
-        }
-      }
-      if (socket) {
-        manualSocketCloseRef.current = true;
-        socket.onopen = null;
-        socket.onmessage = null;
-        socket.onerror = null;
-        socket.onclose = null;
-        socket.close(1000, "cleanup");
-      }
-      wsRef.current = null;
-      audioStreamActiveRef.current = false;
-      dispatch(setSpeechDetected(false));
-      dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-    };
-  }, [dispatch]);
 
   const pushAlert = (type: AlertType, id: string) => {
     setAlerts((prev) => {
@@ -290,417 +129,30 @@ export default function RecordingPage() {
     });
   };
 
-  const stopReconnectTimer = () => {
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-  };
-
-  const stopKeepalive = () => {
-    if (keepaliveRef.current) {
-      clearInterval(keepaliveRef.current);
-      keepaliveRef.current = null;
-    }
-  };
-
-  const startKeepalive = () => {
-    stopKeepalive();
-    keepaliveRef.current = setInterval(() => {
-      const socket = wsRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      if (audioStreamActiveRef.current) {
-        return;
-      }
-      if (Date.now() - lastDataSentRef.current < KEEPALIVE_MS) {
-        return;
-      }
-      if (lastServerMsgRef.current && Date.now() - lastServerMsgRef.current < 2000) {
-        return;
-      }
-
-      socket.send(JSON.stringify({ type: "start", modality: "audio" }));
-      socket.send(
-        JSON.stringify({
-          type: "data",
-          modality: "audio",
-          content: getSilentPcmBase64(),
-          mime_type: PCM_MIME_TYPE,
-        })
-      );
-      socket.send(JSON.stringify({ type: "end" }));
-      lastDataSentRef.current = Date.now();
-    }, KEEPALIVE_MS);
-  };
-
-  const primeLiveSession = () => {
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN || audioStreamActiveRef.current) {
-      return;
-    }
-
-    socket.send(JSON.stringify({ type: "start", modality: "audio" }));
-    socket.send(
-      JSON.stringify({
-        type: "data",
-        modality: "audio",
-        content: getSilentPcmBase64(),
-        mime_type: PCM_MIME_TYPE,
-      })
-    );
-    socket.send(JSON.stringify({ type: "end" }));
-    lastDataSentRef.current = Date.now();
-  };
-
-  const shouldKeepLiveSocket = () =>
-    liveSessionActiveRef.current && !manualSocketCloseRef.current;
-
-  const scheduleLiveReconnect = (connect: () => Promise<void>) => {
-    if (!shouldKeepLiveSocket()) {
-      dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-      return;
-    }
-
-    reconnectAttemptRef.current += 1;
-    const delay = Math.min(
-      RECONNECT_BASE_DELAY_MS * Math.min(reconnectAttemptRef.current, 10),
-      RECONNECT_MAX_DELAY_MS
-    );
-    dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
-    pushAlert("socket-disconnected", "socket-reconnecting");
-
-    stopReconnectTimer();
-    reconnectTimerRef.current = setTimeout(async () => {
-      if (!shouldKeepLiveSocket()) {
-        return;
-      }
-
-      try {
-        await connect();
-      } catch {
-        scheduleLiveReconnect(connect);
-      }
-    }, delay);
-  };
-
-  const sendLiveFrame = (payload: Record<string, unknown>) => {
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return false;
-    }
-
-    socket.send(JSON.stringify(payload));
-    return true;
-  };
-
-  const startRecordingStream = () => {
-    if (audioStreamActiveRef.current) {
-      return;
-    }
-
-    if (sendLiveFrame({ type: "start", modality: "audio" })) {
-      audioStreamActiveRef.current = true;
-    }
-  };
-
-  const sendPcmDataFrame = (chunk: Float32Array) => {
-    const sent = sendLiveFrame({
-      type: "data",
-      modality: "audio",
-      content: arrayBufferToBase64(float32ToPcmArrayBuffer(chunk)),
-      mime_type: PCM_MIME_TYPE,
-    });
-    if (sent) {
-      lastDataSentRef.current = Date.now();
-    }
-  };
-
-  const endRecordingStream = () => {
-    if (!audioStreamActiveRef.current) {
-      return;
-    }
-
-    sendLiveFrame({ type: "end" });
-    audioStreamActiveRef.current = false;
-  };
-
-  const closeLiveSocket = () => {
-    liveSessionActiveRef.current = false;
-    manualSocketCloseRef.current = true;
-    stopReconnectTimer();
-    stopKeepalive();
-    endRecordingStream();
-
-    const socket = wsRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      try {
-        socket.send(JSON.stringify({ type: "disconnect" }));
-      } catch {
-        // ignore send errors during close
-      }
-    }
-
-    if (socket) {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      socket.close(1000, "cleanup");
-    }
-
-    wsRef.current = null;
-    audioStreamActiveRef.current = false;
-    dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-  };
-
-  const stopAudioCapture = () => {
-    endRecordingStream();
-    if (scriptProcessorRef.current) {
-      scriptProcessorRef.current.disconnect();
-      scriptProcessorRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      void audioCtxRef.current.close();
-      audioCtxRef.current = null;
-    }
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach((track) => track.stop());
-      micStreamRef.current = null;
-    }
-    dispatch(setSpeechDetected(false));
-  };
-
-  const handleAudioProcess = (event: AudioProcessingEvent) => {
-    if (!recordingRef.current || pausedRef.current) {
-      dispatch(setSpeechDetected(false));
-      return;
-    }
-
-    const socket = wsRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    if (!audioStreamActiveRef.current) {
-      startRecordingStream();
-    }
-
-    const input = event.inputBuffer.getChannelData(0);
-    const inputRate = audioCtxRef.current?.sampleRate ?? SAMPLE_RATE;
-    const pcm16k = resampleTo16k(new Float32Array(input), inputRate);
-
-    let sumSq = 0;
-    for (let i = 0; i < pcm16k.length; i++) {
-      sumSq += pcm16k[i] * pcm16k[i];
-    }
-    const rms = Math.sqrt(sumSq / pcm16k.length);
-    const isSpeech = rms >= SPEECH_THRESHOLD;
-    dispatch(setSpeechDetected(isSpeech));
-
-    if (audioStreamActiveRef.current) {
-      sendPcmDataFrame(pcm16k);
-    }
-  };
-
-  const startAudioCapture = async () => {
-    try {
-      micStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: SAMPLE_RATE,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: false,
-        },
-      });
-
-      try {
-        audioCtxRef.current = new AudioContext({ sampleRate: SAMPLE_RATE });
-      } catch {
-        audioCtxRef.current = new AudioContext();
-      }
-
-      const source = audioCtxRef.current.createMediaStreamSource(micStreamRef.current);
-      const processor = audioCtxRef.current.createScriptProcessor(CHUNK_SIZE, 1, 1);
-      processor.onaudioprocess = handleAudioProcess;
-      source.connect(processor);
-      processor.connect(audioCtxRef.current.destination);
-      scriptProcessorRef.current = processor;
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to access microphone";
-      pushAlert("microphone", `mic-error:${message}`);
-      return false;
-    }
-  };
-
-  const connectLiveSocket = async () => {
-    stopReconnectTimer();
-    manualSocketCloseRef.current = false;
-    liveSessionActiveRef.current = true;
-    reconnectAttemptRef.current = 0;
-    dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
-    setLiveDraft("");
-    audioStreamActiveRef.current = false;
-
-    const openSocket = () =>
-        new Promise<void>((resolve, reject) => {
-          const activeConfig = liveConfigRef.current;
-          const currentSessionId = sessionIdRef.current;
-
-          if (!activeConfig || !currentSessionId) {
-            reject(new Error("Missing reconnect session context"));
-            return;
-          }
-
-          const agentSlug = activeConfig.agentName || "live-transcription-agent";
-          const wsUrl = `${activeConfig.baseUrl.replace(/^http/, "ws")}/api/v1/agents/${agentSlug}/live`;
-          const socket = new WebSocket(wsUrl);
-          wsRef.current = socket;
-          let settled = false;
-
-          socket.onopen = () => {
-            socket.send(
-              JSON.stringify({
-                type: "auth",
-                api_key: activeConfig.apiKey,
-                session_id: currentSessionId,
-                project_id: activeConfig.projectId,
-              })
-            );
-            reconnectAttemptRef.current = 0;
-            audioStreamActiveRef.current = false;
-            lastServerMsgRef.current = Date.now();
-            lastDataSentRef.current = Date.now();
-            dispatch(setConnectionState({ isConnected: true, isConnecting: false }));
-            setAlerts((prev) => prev.filter((a) => a.type !== "socket-disconnected"));
-            setTimeout(() => {
-              primeLiveSession();
-              if (recordingRef.current && !pausedRef.current) {
-                startRecordingStream();
-              }
-            }, 80);
-            startKeepalive();
-            if (!settled) {
-              settled = true;
-              resolve();
-            }
-          };
-
-          socket.onmessage = (messageEvent) => {
-            lastServerMsgRef.current = Date.now();
-            try {
-              const event = JSON.parse(messageEvent.data) as {
-                type?: string;
-                modality?: string;
-                source?: string;
-                content?: string;
-                message?: string;
-              };
-
-              const type = event.type || "";
-
-              if (type === "data" && event.modality === "text") {
-                if (event.source === "output_transcription") {
-                  return;
-                }
-                if (event.source !== "input_transcription" || typeof event.content !== "string") {
-                  return;
-                }
-
-                currentTurnRef.current = event.content;
-                setLiveDraft(event.content);
-                return;
-              }
-
-              if (type === "end") {
-                const finalText = currentTurnRef.current.trim() || liveDraftRef.current.trim();
-                currentTurnRef.current = "";
-                if (finalText) {
-                  dispatch(addTranscription(finalText));
-                }
-                setLiveDraft("");
-                return;
-              }
-
-              if (type === "error") {
-                const errorMessage = event.message || "Live socket error";
-                pushAlert("socket-disconnected", `socket-error:${errorMessage}`);
-              }
-            } catch {
-              pushAlert("network-slow", "socket-parse-error");
-            }
-          };
-
-          socket.onerror = () => {
-            if (!settled) {
-              settled = true;
-              reject(new Error("WebSocket connection failed"));
-            }
-          };
-
-          socket.onclose = () => {
-            if (wsRef.current === socket) {
-              wsRef.current = null;
-            }
-
-            stopKeepalive();
-            audioStreamActiveRef.current = false;
-            dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-            if (recordingRef.current) {
-              dispatch(setSpeechDetected(false));
-            }
-
-            if (manualSocketCloseRef.current) {
-              return;
-            }
-
-            scheduleLiveReconnect(attemptLiveConnection);
-          };
-        });
-
-    const attemptLiveConnection = async () => {
-      if (!shouldKeepLiveSocket()) {
-        return;
-      }
-
-      dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
-
-      if (!liveConfigRef.current) {
-        const configResponse = await apiFetch("/api/live-transcriber/config");
-        const config = (await configResponse.json()) as LiveConfigResponse;
-        liveConfigRef.current = config;
-
-        if (!configResponse.ok) {
-          throw new Error(config.error || "Failed to load live transcriber config");
-        }
-      }
-
-      if (!sessionIdRef.current) {
-        sessionIdRef.current = createSessionId();
-      }
-
-      await openSocket();
-    };
-
-    try {
-      await attemptLiveConnection();
-    } catch (error) {
-      if (!shouldKeepLiveSocket()) {
-        dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-        return;
-      }
-
-      const message = error instanceof Error ? error.message : "Unable to connect live socket";
-      pushAlert("socket-disconnected", `socket-connect:${message}`);
-
-      // Config fetch failures never reach onclose; socket failures are handled there.
-      if (!wsRef.current) {
-        scheduleLiveReconnect(attemptLiveConnection);
-      }
-    }
-  };
+  const {
+    startTranscription,
+    disconnect,
+    stopAudioCapture,
+    pauseSendingAudio,
+    resumeSendingAudio,
+    flushDraft,
+  } = useLiveTranscription({
+    onLiveDraft: setLiveDraft,
+    onTurnComplete: (text) => dispatch(addTranscription(text)),
+    onConnectionState: (state) => dispatch(setConnectionState(state)),
+    onSpeechDetected: (detected) => dispatch(setSpeechDetected(detected)),
+    onError: (id) => {
+      const alertType: AlertType = id.startsWith("mic-error:")
+        ? "microphone"
+        : id === "socket-parse-error"
+          ? "network-slow"
+          : "socket-disconnected";
+      pushAlert(alertType, id);
+    },
+    onClearError: (prefix) => {
+      setAlerts((prev) => prev.filter((a) => !a.id.startsWith(prefix)));
+    },
+  });
 
   // Timer tick when recording and not paused
   useEffect(() => {
@@ -711,58 +163,31 @@ export default function RecordingPage() {
     return () => clearInterval(interval);
   }, [recording.isRecording, recording.isPaused, dispatch]);
 
-  const handleStartVisit = async () => {
+  const handleStartVisit = () => {
     const visitId = `visit_${Date.now()}`;
     dispatch(startVisit(visitId));
-    await connectLiveSocket();
   };
 
-  // Reconnect live socket when returning to recording with an ongoing visit
-  useEffect(() => {
-    if (
-      recording.recordingMode === "conversational" ||
-      recording.currentView !== "recording" ||
-      !recording.visitId ||
-      recording.isRecording ||
-      recording.isConnected ||
-      recording.isConnecting
-    ) {
-      return;
-    }
-
-    void connectLiveSocket();
-  }, [
-    recording.recordingMode,
-    recording.currentView,
-    recording.visitId,
-    recording.isRecording,
-    recording.isConnected,
-    recording.isConnecting,
-  ]);
-
   const handleStartRecording = async () => {
-    if (!recording.isConnected || recording.isConnecting) {
+    if (recording.isRecording || recording.isConnecting) {
       return;
     }
 
-    const micStarted = await startAudioCapture();
-    if (!micStarted) {
+    const started = await startTranscription();
+    if (!started) {
       return;
     }
 
     dispatch(startRecording());
-    recordingRef.current = true;
-    startRecordingStream();
   };
 
   const handlePause = () => {
-    endRecordingStream();
+    pauseSendingAudio();
     dispatch(pauseRecording());
   };
 
   const handleResume = () => {
-    audioStreamActiveRef.current = false;
-    currentTurnRef.current = "";
+    resumeSendingAudio();
     dispatch(resumeRecording());
   };
 
@@ -1256,15 +681,13 @@ export default function RecordingPage() {
   };
 
   const handleStop = async () => {
-    recordingRef.current = false;
     stopAudioCapture();
-    closeLiveSocket();
+    const draft = flushDraft();
+    disconnect();
 
-    const draft = (currentTurnRef.current || liveDraftRef.current).trim();
     if (draft) {
       dispatch(addTranscription(draft));
       setLiveDraft("");
-      currentTurnRef.current = "";
     }
 
     const transcriptMessage = [...recording.transcription, ...(draft ? [draft] : [])]
