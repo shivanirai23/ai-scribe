@@ -135,22 +135,29 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     }
   }, []);
 
-  /** input_transcription partials are cumulative — replace in place; output appends when no input this turn. */
-  const setTranscriptText = useCallback((text: string, { append = false } = {}) => {
-    const prev = currentTurnRef.current || "";
-    const next = String(text || "");
-    const merged = append
-      ? next.startsWith(prev) || prev.startsWith(next)
-        ? next.length >= prev.length
-          ? next
-          : prev
-        : prev + next
-      : next;
-
-    currentTurnRef.current = merged;
-    liveDraftRef.current = merged;
-    callbacksRef.current.onLiveDraft(merged);
+  /** Merge incremental fragments; prefer longer text when one chunk extends the other. */
+  const mergeTranscriptText = useCallback((prev: string, next: string) => {
+    if (!prev) return next;
+    if (!next) return prev;
+    if (next.startsWith(prev) || prev.startsWith(next)) {
+      return next.length >= prev.length ? next : prev;
+    }
+    const needsSpace = !/\s$/.test(prev) && !/^\s/.test(next);
+    return prev + (needsSpace ? " " : "") + next;
   }, []);
+
+  const setTranscriptText = useCallback(
+    (text: string, { mode = "replace" as "replace" | "merge" } = {}) => {
+      const prev = currentTurnRef.current || "";
+      const next = String(text || "");
+      const merged = mode === "merge" ? mergeTranscriptText(prev, next) : next;
+
+      currentTurnRef.current = merged;
+      liveDraftRef.current = merged;
+      callbacksRef.current.onLiveDraft(merged);
+    },
+    [mergeTranscriptText]
+  );
 
   const finishCurrentTurn = useCallback(() => {
     const finalText = currentTurnRef.current.trim() || liveDraftRef.current.trim();
@@ -170,6 +177,7 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
       source?: string;
       content?: string;
       message?: string;
+      partial?: boolean | null;
       finished?: boolean;
     }) => {
       if (!frame || typeof frame !== "object") {
@@ -192,7 +200,7 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
           if (text) {
             wsInputThisTurnRef.current = true;
             transcriptTextSourceRef.current = "input";
-            setTranscriptText(text);
+            setTranscriptText(text, { mode: "merge" });
             if (frame.finished) {
               finishCurrentTurn();
             }
@@ -201,9 +209,16 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
         }
 
         if (text != null && (source === "output" || source === "output_transcription" || !source)) {
-          if (!wsInputThisTurnRef.current) {
-            transcriptTextSourceRef.current = source || "output";
-            setTranscriptText(text, { append: true });
+          const isPartial = frame.partial === true;
+          // Streaming output corrections during user speech are noise; final output is authoritative.
+          if (wsInputThisTurnRef.current && isPartial) {
+            return;
+          }
+
+          transcriptTextSourceRef.current = source || "output";
+          setTranscriptText(text, { mode: isPartial ? "merge" : "replace" });
+          if (!isPartial && frame.finished) {
+            finishCurrentTurn();
           }
           return;
         }
