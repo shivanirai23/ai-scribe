@@ -292,7 +292,7 @@ export default function RecordingPage() {
       year: "numeric",
     });
 
-    const [formatterResult, visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult] =
+    const [formatterResult, visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult, vaccineResult] =
       await Promise.all([
         callTranscriptionFormatter(),
         callAgentRoute<{
@@ -340,6 +340,9 @@ export default function RecordingPage() {
         callAgentRoute<{
           lab_test?: unknown[];
         }>("/api/lab-tests"),
+        callAgentRoute<{
+          vaccine?: unknown[];
+        }>("/api/vaccines"),
       ]);
 
     const visitData = (visitResult.data || {}) as {
@@ -396,6 +399,10 @@ export default function RecordingPage() {
 
     const labTestData = (labTestResult.data || {}) as {
       lab_test?: unknown[];
+    };
+
+    const vaccineData = (vaccineResult.data || {}) as {
+      vaccine?: unknown[];
     };
 
     const mappedVisitNotes = (visitData.visit_notes || []).filter((item) => item.trim().length > 0);
@@ -621,6 +628,40 @@ export default function RecordingPage() {
     const mappedCptCodes = cptPipelineData.cpt_codes || [];
     const mappedLabTests = (labTestData.lab_test || []) as unknown[];
 
+    const mappedVaccines = (vaccineData.vaccine || [])
+      .map((item) => {
+        if (typeof item === "string") {
+          return item.trim() ? { name: item.trim() } : null;
+        }
+        if (!item || typeof item !== "object") return null;
+        const vaccine = item as {
+          name?: unknown;
+          vaccine_name?: unknown;
+          dose?: unknown;
+          dose_number?: unknown;
+          date?: unknown;
+        };
+        const name =
+          typeof vaccine.name === "string"
+            ? vaccine.name
+            : typeof vaccine.vaccine_name === "string"
+              ? vaccine.vaccine_name
+              : "";
+        if (!name.trim()) return null;
+        const dose =
+          typeof vaccine.dose === "string"
+            ? vaccine.dose
+            : typeof vaccine.dose_number === "string"
+              ? vaccine.dose_number
+              : "";
+        return {
+          name,
+          ...(dose ? { dose } : {}),
+          ...(typeof vaccine.date === "string" && vaccine.date.trim() ? { date: vaccine.date } : {}),
+        };
+      })
+      .filter((item): item is { name: string; dose?: string; date?: string } => item !== null);
+
     const failedAgents = [
       formatterResult.ok ? null : `Transcription formatter: ${formatterResult.error}`,
       visitResult.ok ? null : `Visit notes: ${visitResult.error}`,
@@ -634,6 +675,7 @@ export default function RecordingPage() {
       referralResult.ok ? null : `Referrals: ${referralResult.error}`,
       cptPipelineResult.ok ? null : `CPT pipeline: ${cptPipelineResult.error}`,
       labTestResult.ok ? null : `Lab tests: ${labTestResult.error}`,
+      vaccineResult.ok ? null : `Vaccines: ${vaccineResult.error}`,
     ].filter((item): item is string => item !== null);
 
     dispatch(
@@ -670,6 +712,9 @@ export default function RecordingPage() {
         },
         procedure: {
           procedure: mappedProcedures,
+        },
+        vaccine: {
+          vaccine: mappedVaccines,
         },
         referrals: mappedReferrals,
         labtest: {

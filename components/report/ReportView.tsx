@@ -524,6 +524,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
   const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | "referrals" | null>(null);
+  const [retryingVaccines, setRetryingVaccines] = useState(false);
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
 
   if (reportLoading) {
@@ -559,7 +560,27 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     })
     .filter((item): item is { name: string; date: string; notes: string } => item !== null);
   const followup = reportData.followup.follow_up_appointment;
-  const vaccines = reportData.vaccine.vaccine as Array<{ name: string }>;
+  const vaccines = (reportData.vaccine.vaccine as Array<Record<string, unknown>>)
+    .map((item) => {
+      const name =
+        typeof item.name === "string"
+          ? item.name
+          : typeof item.vaccine_name === "string"
+            ? item.vaccine_name
+            : "";
+      if (!name.trim()) return null;
+      return {
+        name,
+        dose:
+          typeof item.dose === "string" && item.dose.trim()
+            ? item.dose
+            : typeof item.dose_number === "string" && item.dose_number.trim()
+              ? item.dose_number
+              : "N/A",
+        date: typeof item.date === "string" && item.date.trim() ? item.date : "N/A",
+      };
+    })
+    .filter((item): item is { name: string; dose: string; date: string } => item !== null);
   const procedures = (reportData.procedure.procedure as Array<Record<string, unknown>>)
     .map((item) => {
       const name =
@@ -931,6 +952,41 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     }
   };
 
+  const retryVaccines = async () => {
+    if (!transcriptMessage) return;
+    setRetryingVaccines(true);
+    setRetryErrors((prev) => ({ ...prev, vaccines: "" }));
+    try {
+      const response = await apiFetch("/api/vaccines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as { vaccine?: unknown[]; error?: string };
+      const apiError = getApiError(response, data, "Vaccines retry failed");
+      if (apiError) {
+        throw new Error(apiError);
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          vaccine: {
+            vaccine: data.vaccine || [],
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        vaccines: error instanceof Error ? error.message : "Vaccines retry failed",
+      }));
+    } finally {
+      setRetryingVaccines(false);
+    }
+  };
+
   const retryReferrals = async () => {
     if (!transcriptMessage) return;
     setRetryingSection("referrals");
@@ -1040,11 +1096,13 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-medium text-lg text-black flex items-center gap-2">
               <ClipboardCheck className="h-4 w-4 text-slate-400" />
-              Procedures
+              Procedures &amp; Vaccines
             </h3>
             {procedures.length === 0 && <RetryButton onClick={retryProcedures} isLoading={retryingSection === "procedures"} />}
           </div>
           {!!retryErrors.procedures && <p className="text-xs text-rose-600 mb-2">{retryErrors.procedures}</p>}
+
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Procedures</p>
           {procedures.length === 0 ? (
             <div className="text-center p-4 text-slate-500">No procedure information available</div>
           ) : (
@@ -1059,6 +1117,30 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
                   <p className="text-sm text-slate-800">{procedure.date}</p>
                   <p className="text-sm font-semibold text-slate-600 mt-1">Note</p>
                   <p className="text-sm text-slate-800">{procedure.notes}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-between items-center mt-3 mb-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Vaccines</p>
+            {vaccines.length === 0 && <RetryButton onClick={retryVaccines} isLoading={retryingVaccines} />}
+          </div>
+          {!!retryErrors.vaccines && <p className="text-xs text-rose-600 mb-2">{retryErrors.vaccines}</p>}
+          {vaccines.length === 0 ? (
+            <div className="text-center p-4 text-slate-500">No vaccines administered</div>
+          ) : (
+            <div className="space-y-2">
+              {vaccines.map((vaccine, i) => (
+                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-slate-900">{vaccine.name}</p>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 font-medium">Vaccine</span>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Dose</p>
+                  <p className="text-sm text-slate-800">{vaccine.dose}</p>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
+                  <p className="text-sm text-slate-800">{vaccine.date}</p>
                 </div>
               ))}
             </div>
@@ -1117,19 +1199,6 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
           )}
         </div>
       </div>
-
-      {vaccines.length > 0 && (
-        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-          <h3 className="font-medium text-lg text-black mb-2">Vaccines</h3>
-          <div className="space-y-2">
-            {vaccines.map((v, i) => (
-              <div key={i} className="bg-white p-2 rounded-xl border border-slate-50 shadow-md">
-                <p className="font-medium text-sm">{v.name}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="flex justify-end items-center gap-2 text-xs text-slate-500 pt-1">
         <span>Was this helpful?</span>
@@ -1428,10 +1497,31 @@ export function ReportView() {
       );
       y += 3;
 
-      const vaccines = reportData.vaccine.vaccine as Array<{ name: string }>;
+      const vaccines = (reportData.vaccine.vaccine as Array<Record<string, unknown>>)
+        .map((item) => {
+          const name =
+            typeof item.name === "string"
+              ? item.name
+              : typeof item.vaccine_name === "string"
+                ? item.vaccine_name
+                : "";
+          if (!name.trim()) return null;
+          const dose =
+            typeof item.dose === "string"
+              ? item.dose
+              : typeof item.dose_number === "string"
+                ? item.dose_number
+                : "";
+          const date = typeof item.date === "string" ? item.date : "";
+          return { name, dose, date };
+        })
+        .filter((item): item is { name: string; dose: string; date: string } => item !== null);
       if (vaccines.length > 0) {
         addText("Vaccines", 11, true);
-        vaccines.forEach((v) => addText(v.name, 10));
+        vaccines.forEach((v) => {
+          const details = [v.dose, v.date].filter((part) => part && part.trim()).join(", ");
+          addText(`${v.name}${details ? ` - ${details}` : ""}`, 10);
+        });
         y += 3;
       }
 
