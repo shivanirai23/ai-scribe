@@ -29,7 +29,7 @@ import { QRCodeDialog } from "@/components/recording/Dialogs";
 import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import type { ReportData } from "@/store/slices/recordingSlice";
-import { apiFetch } from "@/lib/utils";
+import { apiFetch, cleanDateValue } from "@/lib/utils";
 import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 
 interface AlertItem {
@@ -435,11 +435,9 @@ export default function RecordingPage() {
         };
 
         const duration =
-          typeof item.duration === "string"
-            ? item.duration
-            : typeof item.date === "string"
-              ? item.date
-              : "";
+          cleanDateValue(item.duration) ||
+          cleanDateValue(item.date) ||
+          "";
         const reason =
           typeof item.reason === "string"
             ? item.reason

@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { apiFetch, withoutBasePath } from "@/lib/utils";
+import { apiFetch, cleanDateValue, withoutBasePath } from "@/lib/utils";
 import {
   setCurrentView,
   endVisit,
@@ -646,10 +646,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     }
     const item = followup as unknown as Record<string, unknown>;
     return {
-      date:
-        (typeof item.date === "string" && item.date.trim()) ||
-        (typeof item.duration === "string" && item.duration.trim()) ||
-        "N/A",
+      date: cleanDateValue(item.date) || cleanDateValue(item.duration) || "N/A",
       reason:
         (typeof item.reason === "string" && item.reason.trim()) ||
         "No follow-up reason provided",
@@ -867,11 +864,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
           };
 
           const duration =
-            typeof item.duration === "string"
-              ? item.duration
-              : typeof item.date === "string"
-                ? item.date
-                : "";
+            cleanDateValue(item.duration) ||
+            cleanDateValue(item.date) ||
+            "";
           const reason =
             typeof item.reason === "string"
               ? item.reason
@@ -1491,10 +1486,15 @@ export function ReportView() {
 
       const followup = reportData.followup.follow_up_appointment;
       addText("Follow-up Appointment", 11, true);
-      addText(
-        followup ? `In ${followup.duration} - ${followup.reason}` : "No follow-up scheduled",
-        10
-      );
+      const followupText = (() => {
+        if (!followup) return "No follow-up scheduled";
+        const when = cleanDateValue(followup.duration);
+        const reason = followup.reason?.trim() || "";
+        if (when && reason) return `In ${when} - ${reason}`;
+        if (when) return `In ${when}`;
+        return reason || "Follow-up scheduled";
+      })();
+      addText(followupText, 10);
       y += 3;
 
       const vaccines = (reportData.vaccine.vaccine as Array<Record<string, unknown>>)

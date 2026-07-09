@@ -81,3 +81,23 @@ export function formatTime(seconds: number): string {
 export function getInitials(firstName: string, lastName: string): string {
   return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
 }
+
+const DATE_PLACEHOLDERS = new Set([
+  "mmddyyyy",
+  "ddmmyyyy",
+  "yyyymmdd",
+  "mmddyy",
+  "ddmmyy",
+  "mmdd",
+]);
+
+// Some agents emit a literal date template (e.g. "MM/DD/YYYY") when they cannot
+// extract a real date. Treat those placeholders as empty so they never surface
+// in the UI or exported PDF.
+export function cleanDateValue(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const compact = trimmed.toLowerCase().replace(/[/\-.\s]/g, "");
+  return DATE_PLACEHOLDERS.has(compact) ? "" : trimmed;
+}
