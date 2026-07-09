@@ -298,15 +298,14 @@ export async function exportVisitReportPdf({
       doc.text(`${index + 1}. ${name}`, margin, y);
       y += 6;
       doc.setFont("helvetica", "normal");
-      const notes =
-        typeof test.notes === "string"
-          ? test.notes
-          : typeof test.reason === "string"
-            ? test.reason
-            : "N/A";
-      const date = typeof test.date === "string" ? test.date : "N/A";
-      addParagraph(`Notes: ${notes}`, 5);
-      addParagraph(`Date: ${date}`, 5);
+      const notes = typeof test.notes === "string" && test.notes.trim() ? test.notes.trim() : "";
+      const date = cleanDateValue(test.date);
+      if (notes) {
+        addParagraph(`Notes: ${notes}`, 5);
+      }
+      if (date) {
+        addParagraph(`Date: ${date}`, 5);
+      }
       y += 3;
     });
   }
@@ -328,12 +327,11 @@ export async function exportVisitReportPdf({
         name,
         typeLabel,
         note:
-          typeof item.reason === "string"
-            ? item.reason
-            : typeof item.clinical_context === "string"
-              ? item.clinical_context
-              : "N/A",
-        date: typeof item.date === "string" ? item.date : "N/A",
+          (typeof item.notes === "string" && item.notes.trim()) ||
+          (typeof item.reason === "string" && item.reason.trim()) ||
+          (typeof item.clinical_context === "string" && item.clinical_context.trim()) ||
+          "",
+        date: cleanDateValue(item.date),
       };
     }),
     ...(reportData.vaccine.vaccine as Array<Record<string, unknown>>).map((item) => ({
@@ -363,8 +361,12 @@ export async function exportVisitReportPdf({
       doc.text(`${index + 1}. ${item.name} (${item.typeLabel})`, margin, y);
       y += 6;
       doc.setFont("helvetica", "normal");
-      addParagraph(`Note: ${item.note}`, 5);
-      addParagraph(`Date: ${item.date}`, 5);
+      if (item.note) {
+        addParagraph(`Notes: ${item.note}`, 5);
+      }
+      if (item.date) {
+        addParagraph(`Date: ${item.date}`, 5);
+      }
       y += 3;
     });
   }
@@ -374,11 +376,18 @@ export async function exportVisitReportPdf({
   const followup = reportData.followup.follow_up_appointment;
   const followupText = (() => {
     if (!followup) return "";
-    const when = cleanDateValue(followup.duration);
+    const when = cleanDateValue(followup.date) || cleanDateValue(followup.duration);
     const reason = followup.reason?.trim() || "";
-    if (when && reason) return `In ${when} - ${reason}`;
-    if (when) return `In ${when}`;
-    return reason;
+    const instructions = followup.instructions?.trim() || "";
+    const visitType = followup.visit_type?.trim() || "";
+
+    const parts: string[] = [];
+    if (when) parts.push(when);
+    if (visitType) parts.push(visitType);
+    if (reason) parts.push(reason);
+    if (instructions) parts.push(`Instructions: ${instructions}`);
+
+    return parts.join(" - ");
   })();
   addParagraph(followupText || null, 5);
   y += 5;

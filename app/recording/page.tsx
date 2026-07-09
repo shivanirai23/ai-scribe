@@ -30,7 +30,7 @@ import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
 import type { ReportData } from "@/store/slices/recordingSlice";
-import { apiFetch, cleanDateValue } from "@/lib/utils";
+import { apiFetch, cleanDateValue, mapFollowUpAppointment } from "@/lib/utils";
 import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 
 interface AlertItem {
@@ -415,52 +415,7 @@ export default function RecordingPage() {
     const mappedIcdCodes = icdData.icd_codes || [];
     const mappedCpt2Codes = cpt2Data.codes || [];
     const firstFollowUp = (followUpData.follow_ups || [])[0];
-    const mappedFollowUp = (() => {
-      if (!firstFollowUp) {
-        return null;
-      }
-
-      if (typeof firstFollowUp === "string") {
-        return {
-          duration: "",
-          reason: firstFollowUp,
-        };
-      }
-
-      if (typeof firstFollowUp === "object") {
-        const item = firstFollowUp as {
-          duration?: unknown;
-          reason?: unknown;
-          description?: unknown;
-          text?: unknown;
-          date?: unknown;
-        };
-
-        const duration =
-          cleanDateValue(item.duration) ||
-          cleanDateValue(item.date) ||
-          "";
-        const reason =
-          typeof item.reason === "string"
-            ? item.reason
-            : typeof item.description === "string"
-              ? item.description
-              : typeof item.text === "string"
-                ? item.text
-                : "";
-
-        if (!duration && !reason) {
-          return null;
-        }
-
-        return {
-          duration,
-          reason,
-        };
-      }
-
-      return null;
-    })();
+    const mappedFollowUp = mapFollowUpAppointment(firstFollowUp);
 
     const mappedPrescribedMedications = (medicationData.medication || [])
       .map((item) => {
@@ -537,8 +492,11 @@ export default function RecordingPage() {
         const procedure = item as {
           name?: unknown;
           reason?: unknown;
+          notes?: unknown;
           procedure_name?: unknown;
           clinical_context?: unknown;
+          date?: unknown;
+          procedure_type?: unknown;
         };
 
         const name =
@@ -552,17 +510,29 @@ export default function RecordingPage() {
           return null;
         }
 
-        return {
-          name,
-          reason:
-            typeof procedure.reason === "string"
+        const mapped: Record<string, unknown> = { name };
+        const date = cleanDateValue(procedure.date);
+        if (date) {
+          mapped.date = date;
+        }
+        if (typeof procedure.procedure_type === "string" && procedure.procedure_type.trim()) {
+          mapped.procedure_type = procedure.procedure_type;
+        }
+        const note =
+          typeof procedure.notes === "string" && procedure.notes.trim()
+            ? procedure.notes
+            : typeof procedure.reason === "string" && procedure.reason.trim()
               ? procedure.reason
-              : typeof procedure.clinical_context === "string"
+              : typeof procedure.clinical_context === "string" && procedure.clinical_context.trim()
                 ? procedure.clinical_context
-                : "",
-        };
+                : "";
+        if (note) {
+          mapped.notes = note;
+        }
+
+        return mapped;
       })
-      .filter((item): item is { name: string; reason: string } => item !== null);
+      .filter((item): item is Record<string, unknown> => item !== null);
 
     const mappedReferrals = (referralData.referrals || [])
       .map((item) => {
@@ -626,7 +596,36 @@ export default function RecordingPage() {
       .filter((item): item is { name: string; reason: string; notes: string; type: string } => item !== null);
 
     const mappedCptCodes = cptPipelineData.cpt_codes || [];
-    const mappedLabTests = (labTestData.lab_test || []) as unknown[];
+    const mappedLabTests = (labTestData.lab_test || [])
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const lab = item as {
+          name?: unknown;
+          test_name?: unknown;
+          date?: unknown;
+          notes?: unknown;
+        };
+
+        const name =
+          typeof lab.name === "string"
+            ? lab.name
+            : typeof lab.test_name === "string"
+              ? lab.test_name
+              : "";
+        if (!name.trim()) return null;
+
+        const mapped: Record<string, unknown> = { name };
+        const date = cleanDateValue(lab.date);
+        if (date) {
+          mapped.date = date;
+        }
+        if (typeof lab.notes === "string" && lab.notes.trim()) {
+          mapped.notes = lab.notes.trim();
+        }
+
+        return mapped;
+      })
+      .filter((item): item is Record<string, unknown> => item !== null);
 
     const mappedVaccines = (vaccineData.vaccine || [])
       .map((item) => {
@@ -637,27 +636,40 @@ export default function RecordingPage() {
         const vaccine = item as {
           name?: unknown;
           vaccine_name?: unknown;
+          vaccineName?: unknown;
           dose?: unknown;
           dose_number?: unknown;
+          doseNumber?: unknown;
           date?: unknown;
+          vaccinationDate?: unknown;
         };
         const name =
           typeof vaccine.name === "string"
             ? vaccine.name
             : typeof vaccine.vaccine_name === "string"
               ? vaccine.vaccine_name
-              : "";
+              : typeof vaccine.vaccineName === "string"
+                ? vaccine.vaccineName
+                : "";
         if (!name.trim()) return null;
         const dose =
           typeof vaccine.dose === "string"
             ? vaccine.dose
             : typeof vaccine.dose_number === "string"
               ? vaccine.dose_number
+              : typeof vaccine.doseNumber === "string"
+                ? vaccine.doseNumber
+                : "";
+        const date =
+          typeof vaccine.date === "string"
+            ? vaccine.date
+            : typeof vaccine.vaccinationDate === "string"
+              ? vaccine.vaccinationDate
               : "";
         return {
           name,
           ...(dose ? { dose } : {}),
-          ...(typeof vaccine.date === "string" && vaccine.date.trim() ? { date: vaccine.date } : {}),
+          ...(date.trim() ? { date } : {}),
         };
       })
       .filter((item): item is { name: string; dose?: string; date?: string } => item !== null);

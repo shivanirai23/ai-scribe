@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { apiFetch, cleanDateValue, withoutBasePath } from "@/lib/utils";
+import { apiFetch, cleanDateValue, mapFollowUpAppointment, withoutBasePath } from "@/lib/utils";
 import { formatMedicationFrequency } from "@/lib/medication";
 import { getProcedureTypeBadge } from "@/lib/procedure-types";
 import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
@@ -550,18 +550,15 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     .map((item) => {
       const name = typeof item.name === "string" ? item.name : "";
       if (!name.trim()) return null;
+      const date = cleanDateValue(item.date);
+      const notes = typeof item.notes === "string" && item.notes.trim() ? item.notes.trim() : "";
       return {
         name,
-        date: typeof item.date === "string" && item.date.trim() ? item.date : "N/A",
-        notes:
-          typeof item.notes === "string" && item.notes.trim()
-            ? item.notes
-            : typeof item.reason === "string" && item.reason.trim()
-              ? item.reason
-              : "N/A",
+        ...(date ? { date } : {}),
+        ...(notes ? { notes } : {}),
       };
     })
-    .filter((item): item is { name: string; date: string; notes: string } => item !== null);
+    .filter((item): item is { name: string; date?: string; notes?: string } => item !== null);
   const followup = reportData.followup.follow_up_appointment;
   const vaccines = (reportData.vaccine.vaccine as Array<Record<string, unknown>>)
     .map((item) => {
@@ -570,7 +567,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
           ? item.name
           : typeof item.vaccine_name === "string"
             ? item.vaccine_name
-            : "";
+            : typeof item.vaccineName === "string"
+              ? item.vaccineName
+              : "";
       if (!name.trim()) return null;
       return {
         name,
@@ -579,8 +578,15 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             ? item.dose
             : typeof item.dose_number === "string" && item.dose_number.trim()
               ? item.dose_number
+              : typeof item.doseNumber === "string" && item.doseNumber.trim()
+                ? item.doseNumber
+                : "N/A",
+        date:
+          typeof item.date === "string" && item.date.trim()
+            ? item.date
+            : typeof item.vaccinationDate === "string" && item.vaccinationDate.trim()
+              ? item.vaccinationDate
               : "N/A",
-        date: typeof item.date === "string" && item.date.trim() ? item.date : "N/A",
       };
     })
     .filter((item): item is { name: string; dose: string; date: string } => item !== null);
@@ -593,38 +599,39 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             ? item.procedure_name
             : "";
       if (!name.trim()) return null;
+      const date = cleanDateValue(item.date);
+      const note =
+        (typeof item.notes === "string" && item.notes.trim()) ||
+        (typeof item.reason === "string" && item.reason.trim()) ||
+        (typeof item.clinical_context === "string" && item.clinical_context.trim()) ||
+        "";
       return {
         name,
-        date: typeof item.date === "string" && item.date.trim() ? item.date : "N/A",
-        notes:
-          typeof item.reason === "string"
-            ? item.reason
-            : typeof item.clinical_context === "string"
-              ? item.clinical_context
-              : "N/A",
+        ...(date ? { date } : {}),
+        ...(note ? { note } : {}),
         badge: getProcedureTypeBadge(
           typeof item.procedure_type === "string" ? item.procedure_type : undefined
         ),
       };
     })
-    .filter((item): item is { name: string; date: string; notes: string; badge: string } => item !== null);
+    .filter((item): item is { name: string; date?: string; note?: string; badge: string } => item !== null);
 
   const allProcedures = [
     ...procedures.map((item) => ({
-      key: `procedure-${item.name}-${item.date}`,
+      key: `procedure-${item.name}-${item.date ?? "no-date"}`,
       name: item.name,
       badge: item.badge,
       date: item.date,
-      detailLabel: "Note",
-      detail: item.notes,
+      detailLabel: "Notes",
+      detail: item.note,
     })),
     ...vaccines.map((item) => ({
       key: `vaccine-${item.name}-${item.date}`,
       name: item.name,
       badge: "Vaccine",
-      date: item.date,
+      date: item.date !== "N/A" ? item.date : undefined,
       detailLabel: "Dose",
-      detail: item.dose,
+      detail: item.dose !== "N/A" ? item.dose : undefined,
     })),
   ];
 
@@ -859,52 +866,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       }
 
       const firstFollowUp = (data.follow_ups || [])[0];
-      const mappedFollowUp = (() => {
-        if (!firstFollowUp) {
-          return null;
-        }
-
-        if (typeof firstFollowUp === "string") {
-          return {
-            duration: "",
-            reason: firstFollowUp,
-          };
-        }
-
-        if (typeof firstFollowUp === "object") {
-          const item = firstFollowUp as {
-            duration?: unknown;
-            reason?: unknown;
-            description?: unknown;
-            text?: unknown;
-            date?: unknown;
-          };
-
-          const duration =
-            cleanDateValue(item.duration) ||
-            cleanDateValue(item.date) ||
-            "";
-          const reason =
-            typeof item.reason === "string"
-              ? item.reason
-              : typeof item.description === "string"
-                ? item.description
-                : typeof item.text === "string"
-                  ? item.text
-                  : "";
-
-          if (!duration && !reason) {
-            return null;
-          }
-
-          return {
-            duration,
-            reason,
-          };
-        }
-
-        return null;
-      })();
+      const mappedFollowUp = mapFollowUpAppointment(firstFollowUp);
 
       dispatch(
         setReportData({
@@ -1094,10 +1056,18 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
               {labs.map((lab, i) => (
                 <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
                   <p className="text-sm font-bold text-slate-900">{lab.name}</p>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
-                  <p className="text-sm text-slate-800">{lab.date}</p>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">Notes</p>
-                  <p className="text-sm text-slate-800">{lab.notes}</p>
+                  {lab.date && (
+                    <>
+                      <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
+                      <p className="text-sm text-slate-800">{lab.date}</p>
+                    </>
+                  )}
+                  {lab.notes && (
+                    <>
+                      <p className="text-sm font-semibold text-slate-600 mt-1">Notes</p>
+                      <p className="text-sm text-slate-800">{lab.notes}</p>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -1140,10 +1110,18 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
                       {item.badge}
                     </span>
                   </div>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
-                  <p className="text-sm text-slate-800">{item.date}</p>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">{item.detailLabel}</p>
-                  <p className="text-sm text-slate-800">{item.detail}</p>
+                  {item.date && (
+                    <>
+                      <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
+                      <p className="text-sm text-slate-800">{item.date}</p>
+                    </>
+                  )}
+                  {item.detail && (
+                    <>
+                      <p className="text-sm font-semibold text-slate-600 mt-1">{item.detailLabel}</p>
+                      <p className="text-sm text-slate-800">{item.detail}</p>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

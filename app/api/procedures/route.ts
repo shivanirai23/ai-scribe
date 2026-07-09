@@ -5,17 +5,27 @@ export const maxDuration = 300;
 
 interface ProcedureRequest {
   message?: string;
+  current_date?: string;
 }
 
 type ProcedureEntry = {
   name: string;
   date?: string;
   code?: string;
+  notes?: string;
   reason?: string;
   urgency?: string;
   recommendations?: string[];
   procedure_type?: string;
 };
+
+function todayMMDDYYYY(): string {
+  return new Date().toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
 
 function parseJsonFromContent(content: string): unknown {
   const trimmed = content.trim();
@@ -111,8 +121,11 @@ function collectProcedureEntries(payload: unknown): ProcedureEntry[] {
         if (typeof item.code === "string") {
           entry.code = item.code;
         }
-        if (typeof item.reason === "string") {
-          entry.reason = item.reason;
+        if (typeof item.notes === "string" && item.notes.trim()) {
+          entry.notes = item.notes.trim();
+        }
+        if (typeof item.reason === "string" && item.reason.trim()) {
+          entry.reason = item.reason.trim();
         }
         if (typeof item.urgency === "string") {
           entry.urgency = item.urgency;
@@ -124,7 +137,9 @@ function collectProcedureEntries(payload: unknown): ProcedureEntry[] {
           );
         }
 
-        if (key === "in_office_procedures") {
+        if (typeof item.procedure_type === "string" && item.procedure_type.trim()) {
+          entry.procedure_type = item.procedure_type;
+        } else if (key === "in_office_procedures") {
           entry.procedure_type = "in_office";
         } else if (key === "imaging_radiology_orders") {
           entry.procedure_type = "imaging";
@@ -155,10 +170,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const agentResponse = await hikigai.invokeAgent("procedure-agent", { message }, HIKIGAI_AGENT_TIMEOUT_MS);
-    // console.log("[procedure-agent] raw invoke output:", JSON.stringify(agentResponse));
+    const current_date = body.current_date?.trim() || todayMMDDYYYY();
+    const agentInput = { transcription: message, current_date };
+    console.log("[procedure-agent] invoke input:", JSON.stringify(agentInput));
+
+    const agentResponse = await hikigai.invokeAgent(
+      "procedure-agent",
+      agentInput,
+      HIKIGAI_AGENT_TIMEOUT_MS
+    );
+    console.log("[procedure-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const procedure = collectProcedureEntries(agentResponse);
+    console.log("[procedure-agent] normalized output:", JSON.stringify({ procedure }));
     return NextResponse.json({ procedure }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate procedures";

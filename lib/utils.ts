@@ -101,3 +101,49 @@ export function cleanDateValue(value: unknown): string {
   const compact = trimmed.toLowerCase().replace(/[/\-.\s]/g, "");
   return DATE_PLACEHOLDERS.has(compact) ? "" : trimmed;
 }
+
+export type FollowUpAppointment = {
+  duration: string;
+  reason: string;
+  date?: string;
+  instructions?: string;
+  visit_type?: string;
+};
+
+export function mapFollowUpAppointment(firstFollowUp: unknown): FollowUpAppointment | null {
+  if (!firstFollowUp) {
+    return null;
+  }
+
+  if (typeof firstFollowUp === "string") {
+    const reason = firstFollowUp.trim();
+    return reason ? { duration: "", reason } : null;
+  }
+
+  if (typeof firstFollowUp !== "object") {
+    return null;
+  }
+
+  const item = firstFollowUp as Record<string, unknown>;
+  const date = cleanDateValue(item.date) || cleanDateValue(item.duration) || "";
+  const reason =
+    (typeof item.reason === "string" && item.reason.trim()) ||
+    (typeof item.description === "string" && item.description.trim()) ||
+    (typeof item.text === "string" && item.text.trim()) ||
+    "";
+  const instructions =
+    typeof item.instructions === "string" ? item.instructions.trim() : "";
+  const visit_type = typeof item.visit_type === "string" ? item.visit_type.trim() : "";
+
+  if (!date && !reason && !instructions) {
+    return null;
+  }
+
+  return {
+    duration: date,
+    ...(date ? { date } : {}),
+    reason,
+    ...(instructions ? { instructions } : {}),
+    ...(visit_type ? { visit_type } : {}),
+  };
+}

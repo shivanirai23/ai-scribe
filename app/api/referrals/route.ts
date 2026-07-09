@@ -136,9 +136,10 @@ export async function POST(request: Request) {
     }
 
     const agentResponse = await hikigai.invokeAgent("referral-agent-v2", { message }, HIKIGAI_AGENT_TIMEOUT_MS);
-    // console.log("[referral-agent-v2] raw invoke output:", JSON.stringify(agentResponse));
+    console.log("[referral-agent-v2] raw invoke output:", JSON.stringify(agentResponse));
 
     const referrals = normalizeReferrals(agentResponse);
+    console.log("[referral-agent-v2] normalized output:", JSON.stringify({ referrals }));
     return NextResponse.json({ referrals }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate referrals";

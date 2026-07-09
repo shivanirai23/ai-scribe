@@ -2,7 +2,7 @@ export function getProcedureTypeBadge(procedureType: string | undefined | null):
   const normalized = (procedureType ?? "").toLowerCase().trim().replace(/-/g, "_");
 
   if (normalized === "in_office") {
-    return "In House Procedure";
+    return "In Office Procedure";
   }
 
   if (normalized === "imaging") {

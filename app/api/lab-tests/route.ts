@@ -12,11 +12,6 @@ type LabTestItem = {
   name: string;
   date?: string;
   notes?: string;
-  reason?: string;
-  diagnosis?: string;
-  fasting_required?: string;
-  order_type?: string;
-  priority?: string;
 };
 
 function todayMMDDYYYY(): string {
@@ -69,11 +64,6 @@ function normalizeLabTests(payload: unknown): LabTestItem[] {
         name,
         ...(str(item.date) ? { date: str(item.date) } : {}),
         ...(str(item.notes) ? { notes: str(item.notes) } : {}),
-        ...(str(item.reason) ? { reason: str(item.reason) } : {}),
-        ...(str(item.diagnosis) ? { diagnosis: str(item.diagnosis) } : {}),
-        ...(str(item.fasting_required) ? { fasting_required: str(item.fasting_required) } : {}),
-        ...(str(item.order_type) ? { order_type: str(item.order_type) } : {}),
-        ...(str(item.priority) ? { priority: str(item.priority) } : {}),
       };
     })
     .filter((item): item is LabTestItem => item !== null);
@@ -94,9 +84,10 @@ export async function POST(request: Request) {
       { transcription: message, current_date },
       HIKIGAI_AGENT_TIMEOUT_MS
     );
-    // console.log("[lab-test-agent] raw invoke output:", JSON.stringify(agentResponse));
+    console.log("[lab-test-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const lab_test = normalizeLabTests(agentResponse);
+    console.log("[lab-test-agent] normalized output:", JSON.stringify({ lab_test }));
     return NextResponse.json({ lab_test }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate lab tests";

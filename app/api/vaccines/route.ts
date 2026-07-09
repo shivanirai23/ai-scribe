@@ -5,6 +5,7 @@ export const maxDuration = 300;
 
 interface VaccineRequest {
   message?: string;
+  current_date?: string;
 }
 
 type VaccineItem = {
@@ -12,6 +13,14 @@ type VaccineItem = {
   dose?: string;
   date?: string;
 };
+
+function todayMMDDYYYY(): string {
+  return new Date().toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -69,14 +78,19 @@ function normalizeVaccines(payload: unknown): VaccineItem[] {
         if (!entry || typeof entry !== "object") return null;
         const item = entry as Record<string, unknown>;
         const name =
-          str(item.name) ?? str(item.vaccine_name) ?? str(item.vaccine) ?? "";
+          str(item.name) ??
+          str(item.vaccine_name) ??
+          str(item.vaccineName) ??
+          str(item.vaccine) ??
+          "";
         if (!name) return null;
+        const dose =
+          str(item.dose) ?? str(item.dose_number) ?? str(item.doseNumber);
+        const date = str(item.date) ?? str(item.vaccinationDate);
         return {
           name,
-          ...(str(item.dose) ?? str(item.dose_number)
-            ? { dose: str(item.dose) ?? str(item.dose_number) }
-            : {}),
-          ...(str(item.date) ? { date: str(item.date) } : {}),
+          ...(dose ? { dose } : {}),
+          ...(date ? { date } : {}),
         };
       })
       .filter((item): item is VaccineItem => item !== null);
@@ -100,14 +114,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
+    const current_date = body.current_date?.trim() || todayMMDDYYYY();
+    const messageWithDate = `${message}\nCURRENT DATE: ${current_date}`;
+
     const agentResponse = await hikigai.invokeAgent(
       "vaccine-agent",
-      { message },
+      { message: messageWithDate },
       HIKIGAI_AGENT_TIMEOUT_MS
     );
-    // console.log("[vaccine-agent] raw invoke output:", JSON.stringify(agentResponse));
+    console.log("[vaccine-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const vaccine = normalizeVaccines(agentResponse);
+    console.log("[vaccine-agent] normalized output:", JSON.stringify({ vaccine }));
     return NextResponse.json({ vaccine }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate vaccines";

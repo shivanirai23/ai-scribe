@@ -71,7 +71,15 @@ export interface ReportData {
     in_clinic_medications: unknown[];
   };
   labtest: { lab_test: unknown[] };
-  followup: { follow_up_appointment: { duration: string; reason: string } | null };
+  followup: {
+    follow_up_appointment: {
+      duration: string;
+      reason: string;
+      date?: string;
+      instructions?: string;
+      visit_type?: string;
+    } | null;
+  };
   vaccine: { vaccine: unknown[] };
   procedure: { procedure: unknown[] };
   referrals: unknown[];
