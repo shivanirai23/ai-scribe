@@ -26,6 +26,7 @@ import { formatMedicationFrequency } from "@/lib/medication";
 import { getProcedureTypeBadge } from "@/lib/procedure-types";
 import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
 import { exportVisitReportPdf } from "@/lib/report-pdf";
+import { toUserFacingApiError } from "@/lib/api-errors";
 import {
   setCurrentView,
   endVisit,
@@ -63,7 +64,7 @@ function getApiError(
     typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
 
   if (!response.ok || responseError) {
-    return responseError || fallbackMessage;
+    return toUserFacingApiError(responseError || fallbackMessage, fallbackMessage);
   }
 
   return null;
@@ -118,7 +119,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        visit: error instanceof Error ? error.message : "Visit notes retry failed",
+        visit: toUserFacingApiError(error, "Visit notes retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -168,7 +169,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        soap: error instanceof Error ? error.message : "SOAP notes retry failed",
+        soap: toUserFacingApiError(error, "SOAP notes retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -208,7 +209,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        icd: error instanceof Error ? error.message : "ICD-10 retry failed",
+        icd: toUserFacingApiError(error, "ICD-10 retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -247,7 +248,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        cpt: error instanceof Error ? error.message : "CPT retry failed",
+        cpt: toUserFacingApiError(error, "CPT retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -286,7 +287,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        cpt2: error instanceof Error ? error.message : "CPT-2 retry failed",
+        cpt2: toUserFacingApiError(error, "CPT-2 retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -327,7 +328,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        em: error instanceof Error ? error.message : "E/M retry failed",
+        em: toUserFacingApiError(error, "E/M retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -800,7 +801,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        medications: error instanceof Error ? error.message : "Medication retry failed",
+        medications: toUserFacingApiError(error, "Medication retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -834,7 +835,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        labs: error instanceof Error ? error.message : "Lab tests retry failed",
+        labs: toUserFacingApiError(error, "Lab tests retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -916,7 +917,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        followup: error instanceof Error ? error.message : "Follow-up retry failed",
+        followup: toUserFacingApiError(error, "Follow-up retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -956,7 +957,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        procedures: error instanceof Error ? error.message : "Procedures retry failed",
+        procedures: toUserFacingApiError(error, "Procedures retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);
@@ -991,7 +992,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        vaccines: error instanceof Error ? error.message : "Vaccines retry failed",
+        vaccines: toUserFacingApiError(error, "Vaccines retry failed. Please try again."),
       }));
     } finally {
       setRetryingVaccines(false);
@@ -1023,7 +1024,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     } catch (error) {
       setRetryErrors((prev) => ({
         ...prev,
-        referrals: error instanceof Error ? error.message : "Referrals retry failed",
+        referrals: toUserFacingApiError(error, "Referrals retry failed. Please try again."),
       }));
     } finally {
       setRetryingSection(null);

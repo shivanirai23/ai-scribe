@@ -188,12 +188,7 @@ export async function exportVisitReportPdf({
   doc.setFont("helvetica", "bold");
   doc.text("Visit Report", pageWidth / 2, y, { align: "center" });
   y += 10;
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  doc.text(`Visit ID: ${visitId || "draft"}`, margin, y);
-  y += 5;
-  doc.text(`Generated: ${new Date().toLocaleString()}`, margin, y);
-  y += 10;
+
 
   // Visit Summary
   addSectionTitle("Visit Summary");
@@ -476,7 +471,7 @@ export async function exportVisitReportPdf({
     } else {
       addParagraph(null, 5);
     }
-    y += 4;
+    y += 2;
   };
 
   addSoapSubSection("Subjective", reportData.soapNote.subjective);

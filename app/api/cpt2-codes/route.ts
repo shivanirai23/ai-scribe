@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { toUserFacingApiError } from "@/lib/api-errors";
 import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
 
 export const maxDuration = 300;
@@ -74,7 +75,15 @@ export async function POST(request: Request) {
     const codes = normalizeCpt2Codes(agentResponse);
     return NextResponse.json({ codes }, { status: 200 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to generate CPT-2 codes";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[cpt2-code-agent] error:", error);
+    return NextResponse.json(
+      {
+        error: toUserFacingApiError(
+          error,
+          "Failed to generate CPT-2 codes. Please try again."
+        ),
+      },
+      { status: 500 }
+    );
   }
 }
