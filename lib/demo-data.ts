@@ -13,8 +13,8 @@ export const DEMO_USER: UserState = {
   phone: "+15551234567",
   speciality: "Internal Medicine",
   clinicName: "Sunrise Health Clinic",
-  totalMinutesLeft: 240,
-  totalMinutesAllowed: 600,
+  totalMinutesLeft: 2500,
+  totalMinutesAllowed: 2500,
   isLoggedIn: true,
 };
 
@@ -121,38 +121,7 @@ export const DEMO_QA_HISTORY = [
   },
 ];
 
-export const SPECIALTIES = [
-  "Allergy and Immunology",
-  "Anesthesiology",
-  "Cardiology",
-  "Dermatology",
-  "Emergency Medicine",
-  "Endocrinology",
-  "Family Medicine",
-  "Gastroenterology",
-  "General Surgery",
-  "Geriatrics",
-  "Hematology",
-  "Infectious Disease",
-  "Internal Medicine",
-  "Nephrology",
-  "Neurology",
-  "Obstetrics and Gynecology",
-  "Oncology",
-  "Ophthalmology",
-  "Orthopedics",
-  "Otolaryngology (ENT)",
-  "Pathology",
-  "Pediatrics",
-  "Physical Medicine",
-  "Psychiatry",
-  "Pulmonology",
-  "Radiology",
-  "Rheumatology",
-  "Sports Medicine",
-  "Urology",
-  "Vascular Surgery",
-];
+export { SPECIALTIES } from "@/lib/specialties";
 
 export const COUNTRY_CODES = [
   { code: "+1", country: "US/CA" },

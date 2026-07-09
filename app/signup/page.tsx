@@ -17,20 +17,9 @@ import {
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { DEFAULT_SUBSCRIPTION_MINUTES, MINUTES_LEFT_ATTRIBUTE } from "@/lib/auth/minutes";
+import { SPECIALTIES } from "@/lib/specialties";
 import { fetchAuthSession, signUp } from "aws-amplify/auth";
-
-const SPECIALTIES = [
-  "Internal Medicine",
-  "Family Medicine",
-  "Cardiology",
-  "Dermatology",
-  "Pediatrics",
-  "Neurology",
-  "Orthopedics",
-  "Psychiatry",
-  "Radiology",
-  "Oncology",
-];
 
 const COUNTRY_CODES = [
   { code: "+1", country: "US/CA" },
@@ -180,6 +169,7 @@ export default function SignupPage() {
             ...(phoneNumber ? { phone_number: phoneNumber } : {}),
             "custom:specialty": form.specialty,
             "custom:clinic_name": form.clinicName,
+            [MINUTES_LEFT_ATTRIBUTE]: String(DEFAULT_SUBSCRIPTION_MINUTES),
           },
         },
       });

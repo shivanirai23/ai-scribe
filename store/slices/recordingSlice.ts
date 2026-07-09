@@ -38,6 +38,7 @@ export interface RecordingState {
   showQRCode: boolean;
   showUserSidebar: boolean;
   showPremiumBanner: boolean;
+  visitMinutesCharged: boolean;
 }
 
 interface ConnectionStatePayload {
@@ -102,6 +103,7 @@ const initialState: RecordingState = {
   showQRCode: false,
   showUserSidebar: false,
   showPremiumBanner: true,
+  visitMinutesCharged: false,
 };
 
 const recordingSlice = createSlice({
@@ -116,6 +118,8 @@ const recordingSlice = createSlice({
       state.transcription = [];
       state.formattedTranscription = null;
       state.reportData = null;
+      state.recordingTime = 0;
+      state.visitMinutesCharged = false;
     },
     endVisit() {
       return { ...initialState };
@@ -202,6 +206,9 @@ const recordingSlice = createSlice({
       state.isConnected = action.payload.isConnected;
       state.isConnecting = action.payload.isConnecting;
     },
+    setVisitMinutesCharged(state, action: PayloadAction<boolean>) {
+      state.visitMinutesCharged = action.payload;
+    },
     updateVisitNote(state, action: PayloadAction<string>) {
       if (state.reportData) {
         state.reportData.visitNotes[0] = action.payload;
@@ -238,6 +245,7 @@ export const {
   setAnswerPaused,
   setPendingBufferCount,
   setConnectionState,
+  setVisitMinutesCharged,
   updateVisitNote,
 } = recordingSlice.actions;
 

@@ -24,6 +24,8 @@ import {
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { apiFetch, cleanDateValue, withoutBasePath } from "@/lib/utils";
+import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
+import { exportVisitReportPdf } from "@/lib/report-pdf";
 import {
   setCurrentView,
   endVisit,
@@ -492,10 +494,10 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
           </div>
         </div>
 
-        {/* E&M Codes */}
+        {/* EM Codes */}
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
-            <h3 className="font-medium text-lg text-black">E&amp;M Codes</h3>
+            <h3 className="font-medium text-lg text-black">EM Codes</h3>
             {!reportData.emCodes.em_code && (
               <RetryButton onClick={retryEmCode} isLoading={retryingSection === "em"} />
             )}
@@ -610,6 +612,25 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       };
     })
     .filter((item): item is { name: string; date: string; notes: string; badge: string } => item !== null);
+
+  const allProcedures = [
+    ...procedures.map((item) => ({
+      key: `procedure-${item.name}-${item.date}`,
+      name: item.name,
+      badge: item.badge,
+      date: item.date,
+      detailLabel: "Note",
+      detail: item.notes,
+    })),
+    ...vaccines.map((item) => ({
+      key: `vaccine-${item.name}-${item.date}`,
+      name: item.name,
+      badge: "Vaccine",
+      date: item.date,
+      detailLabel: "Dose",
+      detail: item.dose,
+    })),
+  ];
 
   const referrals = (reportData.referrals as Array<Record<string, unknown>>)
     .map((item) => {
@@ -1091,51 +1112,42 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-medium text-lg text-black flex items-center gap-2">
               <ClipboardCheck className="h-4 w-4 text-slate-400" />
-              Procedures &amp; Vaccines
+              Procedures
             </h3>
-            {procedures.length === 0 && <RetryButton onClick={retryProcedures} isLoading={retryingSection === "procedures"} />}
+            <div className="flex items-center gap-2">
+              {procedures.length === 0 && (
+                <RetryButton onClick={retryProcedures} isLoading={retryingSection === "procedures"} />
+              )}
+              {vaccines.length === 0 && (
+                <RetryButton onClick={retryVaccines} isLoading={retryingVaccines} />
+              )}
+            </div>
           </div>
           {!!retryErrors.procedures && <p className="text-xs text-rose-600 mb-2">{retryErrors.procedures}</p>}
+          {!!retryErrors.vaccines && <p className="text-xs text-rose-600 mb-2">{retryErrors.vaccines}</p>}
 
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Procedures</p>
-          {procedures.length === 0 ? (
+          {allProcedures.length === 0 ? (
             <div className="text-center p-4 text-slate-500">No procedure information available</div>
           ) : (
             <div className="space-y-2">
-              {procedures.map((procedure, i) => (
-                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+              {allProcedures.map((item) => (
+                <div key={item.key} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-slate-900">{procedure.name}</p>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 font-medium">{procedure.badge}</span>
+                    <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        item.badge === "Vaccine"
+                          ? "bg-sky-100 text-sky-700"
+                          : "bg-orange-100 text-orange-600"
+                      }`}
+                    >
+                      {item.badge}
+                    </span>
                   </div>
                   <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
-                  <p className="text-sm text-slate-800">{procedure.date}</p>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">Note</p>
-                  <p className="text-sm text-slate-800">{procedure.notes}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="flex justify-between items-center mt-3 mb-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Vaccines</p>
-            {vaccines.length === 0 && <RetryButton onClick={retryVaccines} isLoading={retryingVaccines} />}
-          </div>
-          {!!retryErrors.vaccines && <p className="text-xs text-rose-600 mb-2">{retryErrors.vaccines}</p>}
-          {vaccines.length === 0 ? (
-            <div className="text-center p-4 text-slate-500">No vaccines administered</div>
-          ) : (
-            <div className="space-y-2">
-              {vaccines.map((vaccine, i) => (
-                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-slate-900">{vaccine.name}</p>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 font-medium">Vaccine</span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">Dose</p>
-                  <p className="text-sm text-slate-800">{vaccine.dose}</p>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
-                  <p className="text-sm text-slate-800">{vaccine.date}</p>
+                  <p className="text-sm text-slate-800">{item.date}</p>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">{item.detailLabel}</p>
+                  <p className="text-sm text-slate-800">{item.detail}</p>
                 </div>
               ))}
             </div>
@@ -1286,7 +1298,7 @@ export function ReportView() {
   const router = useRouter();
   const pathname = usePathname();
   const isVisitDetailsRoute = withoutBasePath(pathname ?? "") === "/visit-details";
-  const { reportData, reportLoading, visitId, transcription, formattedTranscription } = useAppSelector((s) => s.recording);
+  const { reportData, reportLoading, visitId, transcription, formattedTranscription, recordingTime, visitMinutesCharged } = useAppSelector((s) => s.recording);
   const transcriptMessage = buildTranscriptMessage(transcription);
   const displayTranscription = formattedTranscription ?? transcription;
   const [isExporting, setIsExporting] = useState(false);
@@ -1299,7 +1311,8 @@ export function ReportView() {
     }
   };
 
-  const handleEndVisit = () => {
+  const handleEndVisit = async () => {
+    await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
     dispatch(endVisit());
     if (isVisitDetailsRoute) {
       router.push("/recording");
@@ -1315,251 +1328,11 @@ export function ReportView() {
 
     setIsExporting(true);
     try {
-      const { default: jsPDF } = await import("jspdf");
-      const doc = new jsPDF();
-
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 14;
-      const maxWidth = pageWidth - margin * 2;
-      let y = 20;
-
-      const sanitize = (text: string) =>
-        text.replace(/[^\x20-\x7E\n]/g, "").trim();
-
-      const checkPage = (lineHeight: number) => {
-        if (y + lineHeight > pageHeight - 10) {
-          doc.addPage();
-          y = 20;
-        }
-      };
-
-      const addText = (text: string, fontSize: number, isBold = false) => {
-        doc.setFontSize(fontSize);
-        doc.setFont("helvetica", isBold ? "bold" : "normal");
-        const lines = doc.splitTextToSize(sanitize(text), maxWidth);
-        (lines as string[]).forEach((line) => {
-          checkPage(fontSize * 0.4 + 2);
-          doc.text(line, margin, y);
-          y += fontSize * 0.4 + 2;
-        });
-      };
-
-      const addSectionHeader = (title: string) => {
-        y += 4;
-        checkPage(14);
-        doc.setFontSize(13);
-        doc.setFont("helvetica", "bold");
-        doc.text(sanitize(title), margin, y);
-        y += 7;
-        doc.setDrawColor(200, 200, 200);
-        doc.line(margin, y, pageWidth - margin, y);
-        y += 4;
-      };
-
-      // 1. Report title + metadata
-      doc.setFontSize(18);
-      doc.setFont("helvetica", "bold");
-      doc.text("Visit Report", margin, y);
-      y += 10;
-      addText(`Visit ID: ${visitId || "draft"}`, 10);
-      addText(`Generated: ${new Date().toLocaleString()}`, 10);
-      y += 6;
-
-      // 2. Visit Summary
-      addSectionHeader("Visit Summary");
-      addText(reportData.visitNotes[0] || "Insufficient content", 10);
-
-      // 3. SOAP Notes
-      addSectionHeader("SOAP Notes");
-      const soapSections = [
-        { label: "Subjective", data: reportData.soapNote.subjective },
-        { label: "Objective", data: reportData.soapNote.objective },
-        { label: "Assessment", data: reportData.soapNote.assessment },
-        { label: "Plan", data: reportData.soapNote.plan },
-      ] as const;
-      for (const { label, data } of soapSections) {
-        addText(label, 11, true);
-        const text = Object.entries(data)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join("\n");
-        addText(text || "Insufficient content", 10);
-        y += 3;
-      }
-
-      // 4. Medical Coding
-      addSectionHeader("Medical Coding");
-      addText("ICD-10 Codes", 11, true);
-      if (reportData.icdCodes.icd_codes.length === 0) {
-        addText("Insufficient content", 10);
-      } else {
-        reportData.icdCodes.icd_codes.forEach((c) =>
-          addText(`${c.icd_10_code} - ${c.name}`, 10)
-        );
-      }
-      y += 3;
-
-      addText("CPT Codes", 11, true);
-      if (reportData.cptCodes.cpt_codes.length === 0) {
-        addText("Insufficient content", 10);
-      } else {
-        reportData.cptCodes.cpt_codes.forEach((c) =>
-          addText(`${c.cpt_code} - ${c.name}`, 10)
-        );
-      }
-      y += 3;
-
-      addText("CPT-2 Codes", 11, true);
-      if (reportData.cpt2Codes.codes.length === 0) {
-        addText("Insufficient content", 10);
-      } else {
-        reportData.cpt2Codes.codes.forEach((c) =>
-          addText(`${c.cpt2_code} - ${c.description}`, 10)
-        );
-      }
-      y += 3;
-
-      addText("E/M Code", 11, true);
-      addText(
-        reportData.emCodes.em_code
-          ? `${reportData.emCodes.em_code} - ${reportData.emCodes.description}`
-          : "Insufficient content",
-        10
-      );
-
-      // 5. Orders
-      addSectionHeader("Orders");
-
-      addText("Prescribed Medications", 11, true);
-      const meds = reportData.medication.prescribed_medications;
-      if (meds.length === 0) {
-        addText("No medications prescribed", 10);
-      } else {
-        meds.forEach((med) =>
-          addText(
-            `${med.correct_medicine_name} - ${med.dosage} ${med.unit}, ` +
-              `Freq M:${med.frequency.morning || "0"}/A:${med.frequency.afternoon || "0"}/N:${med.frequency.night || "0"}, ` +
-              `${med.days} days, ${med.instruction}`,
-            10
-          )
-        );
-      }
-      y += 3;
-
-      const labs = reportData.labtest.lab_test as Array<{ name: string; reason?: string }>;
-      addText("Lab Tests", 11, true);
-      if (labs.length === 0) {
-        addText("No lab tests recommended", 10);
-      } else {
-        labs.forEach((lab) =>
-          addText(`${lab.name}${lab.reason ? ` - ${lab.reason}` : ""}`, 10)
-        );
-      }
-      y += 3;
-
-      const procedures = (reportData.procedure.procedure as Array<Record<string, unknown>>)
-        .map((item) => {
-          const name =
-            typeof item.name === "string"
-              ? item.name
-              : typeof item.procedure_name === "string"
-                ? item.procedure_name
-                : "";
-          if (!name.trim()) return null;
-          const reason =
-            typeof item.reason === "string"
-              ? item.reason
-              : typeof item.clinical_context === "string"
-                ? item.clinical_context
-                : "";
-          return { name, reason };
-        })
-        .filter((item): item is { name: string; reason: string } => item !== null);
-
-      addText("Procedures", 11, true);
-      if (procedures.length === 0) {
-        addText("Insufficient content", 10);
-      } else {
-        procedures.forEach((p) => addText(`${p.name}${p.reason ? ` - ${p.reason}` : ""}`, 10));
-      }
-      y += 3;
-
-      const followup = reportData.followup.follow_up_appointment;
-      addText("Follow-up Appointment", 11, true);
-      const followupText = (() => {
-        if (!followup) return "No follow-up scheduled";
-        const when = cleanDateValue(followup.duration);
-        const reason = followup.reason?.trim() || "";
-        if (when && reason) return `In ${when} - ${reason}`;
-        if (when) return `In ${when}`;
-        return reason || "Follow-up scheduled";
-      })();
-      addText(followupText, 10);
-      y += 3;
-
-      const vaccines = (reportData.vaccine.vaccine as Array<Record<string, unknown>>)
-        .map((item) => {
-          const name =
-            typeof item.name === "string"
-              ? item.name
-              : typeof item.vaccine_name === "string"
-                ? item.vaccine_name
-                : "";
-          if (!name.trim()) return null;
-          const dose =
-            typeof item.dose === "string"
-              ? item.dose
-              : typeof item.dose_number === "string"
-                ? item.dose_number
-                : "";
-          const date = typeof item.date === "string" ? item.date : "";
-          return { name, dose, date };
-        })
-        .filter((item): item is { name: string; dose: string; date: string } => item !== null);
-      if (vaccines.length > 0) {
-        addText("Vaccines", 11, true);
-        vaccines.forEach((v) => {
-          const details = [v.dose, v.date].filter((part) => part && part.trim()).join(", ");
-          addText(`${v.name}${details ? ` - ${details}` : ""}`, 10);
-        });
-        y += 3;
-      }
-
-      const referrals = (reportData.referrals as Array<Record<string, unknown>>)
-        .map((item) => {
-          const specialist =
-            typeof item.specialist === "string"
-              ? item.specialist
-              : typeof item.name === "string"
-                ? item.name
-                : "";
-          if (!specialist.trim()) return null;
-          const reason =
-            typeof item.reason === "string"
-              ? item.reason
-              : typeof item.clinical_context === "string"
-                ? item.clinical_context
-                : "";
-          return { specialist, reason };
-        })
-        .filter((item): item is { specialist: string; reason: string } => item !== null);
-
-      addText("Referrals", 11, true);
-      if (referrals.length === 0) {
-        addText("Insufficient content", 10);
-      } else {
-        referrals.forEach((r) => addText(`${r.specialist}${r.reason ? ` - ${r.reason}` : ""}`, 10));
-      }
-
-      // 6. Full Transcription
-      addSectionHeader("Full Transcription");
-      if (displayTranscription.length === 0) {
-        addText("Insufficient content", 10);
-      } else {
-        displayTranscription.forEach((text) => addText(text, 10));
-      }
-
-      doc.save(`visit-report-${visitId || "draft"}.pdf`);
+      await exportVisitReportPdf({
+        reportData,
+        visitId,
+        transcription: displayTranscription,
+      });
     } finally {
       setIsExporting(false);
     }

@@ -28,6 +28,7 @@ import { PictureInPicture } from "@/components/recording/PictureInPicture";
 import { QRCodeDialog } from "@/components/recording/Dialogs";
 import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
+import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
 import type { ReportData } from "@/store/slices/recordingSlice";
 import { apiFetch, cleanDateValue } from "@/lib/utils";
 import { useLiveTranscription } from "@/hooks/useLiveTranscription";
@@ -742,6 +743,11 @@ export default function RecordingPage() {
       .join("\n");
 
     if (!transcriptMessage) {
+      await chargeVisitMinutesIfNeeded(
+        dispatch,
+        recording.recordingTime,
+        recording.visitMinutesCharged
+      );
       // Fully reset state so Start Visit button reappears
       dispatch(endVisit());
       setNoTranscriptToast(true);
@@ -749,6 +755,11 @@ export default function RecordingPage() {
       return;
     }
 
+    await chargeVisitMinutesIfNeeded(
+      dispatch,
+      recording.recordingTime,
+      recording.visitMinutesCharged
+    );
     dispatch(stopRecording());
 
     await generateReportFromMessage(transcriptMessage);

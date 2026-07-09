@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Crown, QrCode, X, LogOut, Save, LockKeyhole, Info, Eye, EyeOff } from "lucide-react";
@@ -12,21 +12,16 @@ import {
 } from "@/store/slices/recordingSlice";
 import { logout } from "@/store/slices/userSlice";
 import { getInitials } from "@/lib/utils";
+import { SPECIALTIES } from "@/lib/specialties";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-
-const SPECIALTIES = [
-  "Internal Medicine",
-  "Family Medicine",
-  "Cardiology",
-  "Dermatology",
-  "Pediatrics",
-  "Neurology",
-  "Orthopedics",
-  "Psychiatry",
-  "Radiology",
-  "Oncology",
-];
+import { chargeVisitMinutesIfNeeded, syncMinutesLeft } from "@/lib/auth/minutes";
+import {
+  isInvalidResetCodeError,
+  isValidPassword,
+  PASSWORD_REQUIREMENTS_MSG,
+  verifyResetCode,
+} from "@/lib/auth/reset-password";
 
 function InfoTooltip({ text }: { text: string }) {
   return (
@@ -43,7 +38,14 @@ export function Header() {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const user = useAppSelector((s) => s.user);
-  const { visitId, showPremiumBanner } = useAppSelector((s) => s.recording);
+  const { visitId, showPremiumBanner, recordingTime, visitMinutesCharged } = useAppSelector(
+    (s) => s.recording
+  );
+
+  const handleEndVisit = async () => {
+    await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
+    dispatch(endVisit());
+  };
 
   const initials = getInitials(user.firstName || "U", user.lastName || "S");
 
@@ -88,7 +90,7 @@ export function Header() {
             </button>
 
             <button
-              onClick={() => dispatch(endVisit())}
+              onClick={() => void handleEndVisit()}
               className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-full px-2.5 sm:px-3 md:px-4 text-xs sm:text-sm h-8 sm:h-9 flex items-center transition-colors"
             >
               <X className="h-3 w-3 sm:h-4 sm:w-4 mr-0.5 sm:mr-1 md:mr-2" />
@@ -116,6 +118,7 @@ export function UserProfileSidebar() {
   const router = useRouter();
   const user = useAppSelector((s) => s.user);
   const showSidebar = useAppSelector((s) => s.recording.showUserSidebar);
+  const { recordingTime, visitMinutesCharged } = useAppSelector((s) => s.recording);
 
   const [firstName, setFirstName] = useState(user.firstName);
   const [lastName, setLastName] = useState(user.lastName);
@@ -140,9 +143,15 @@ export function UserProfileSidebar() {
   const [pwSuccess, setPwSuccess] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
-  const [forgotPasswordStep, setForgotPasswordStep] = useState<"idle" | "confirm-reset">("idle");
+  const [forgotPasswordStep, setForgotPasswordStep] = useState<"idle" | "verify-code" | "new-password">("idle");
 
   const initials = getInitials(user.firstName || "U", user.lastName || "S");
+
+  useEffect(() => {
+    if (showSidebar) {
+      void syncMinutesLeft(dispatch);
+    }
+  }, [showSidebar, dispatch]);
 
   const handleSave = async () => {
     let hasError = false;
@@ -190,15 +199,7 @@ export function UserProfileSidebar() {
     setPwSuccess("");
   };
 
-  const isValidPassword = (password: string) => {
-    return (
-      password.length >= 8 &&
-      /[a-z]/.test(password) &&
-      /[A-Z]/.test(password) &&
-      /[0-9]/.test(password) &&
-      /[^a-zA-Z0-9]/.test(password)
-    );
-  };
+  const isValidPasswordCheck = isValidPassword;
 
   const handleChangePassword = async () => {
     setPwSuccess("");
@@ -211,8 +212,8 @@ export function UserProfileSidebar() {
       setPwError("New password must be different from the current password");
       return;
     }
-    if (!isValidPassword(newPassword)) {
-      setPwError("Password must be 8+ chars with lowercase, uppercase, number, and special character");
+    if (!isValidPasswordCheck(newPassword)) {
+      setPwError(PASSWORD_REQUIREMENTS_MSG);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -254,12 +255,42 @@ export function UserProfileSidebar() {
       const result = await resetPassword({ username: user.email });
 
       if (result.nextStep.resetPasswordStep === "CONFIRM_RESET_PASSWORD_WITH_CODE") {
-        setForgotPasswordStep("confirm-reset");
+        setForgotPasswordStep("verify-code");
+        setPwSuccess("A reset code was sent to your email. Enter it below to continue.");
       } else {
         setPwSuccess("Password reset request submitted.");
       }
     } catch (e) {
       setPwError(e instanceof Error ? e.message : "Failed to start password reset");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const handleVerifyResetCode = async () => {
+    setPwError("");
+    setPwSuccess("");
+
+    if (!user.email) {
+      setPwError("No email is available for this account.");
+      return;
+    }
+
+    if (!resetCode.trim()) {
+      setPwError("Please enter the reset code.");
+      return;
+    }
+
+    try {
+      setIsResettingPassword(true);
+      const result = await verifyResetCode(user.email, resetCode.trim());
+      if (!result.valid) {
+        setPwError(result.error);
+        return;
+      }
+
+      setForgotPasswordStep("new-password");
+      setPwSuccess("Code verified. Choose a new password below.");
     } finally {
       setIsResettingPassword(false);
     }
@@ -274,13 +305,13 @@ export function UserProfileSidebar() {
       return;
     }
 
-    if (!resetCode || !resetNewPassword || !resetConfirmPassword) {
-      setPwError("All reset fields are required");
+    if (!resetNewPassword || !resetConfirmPassword) {
+      setPwError("All password fields are required");
       return;
     }
 
-    if (!isValidPassword(resetNewPassword)) {
-      setPwError("Password must be 8+ chars with lowercase, uppercase, number, and special character");
+    if (!isValidPasswordCheck(resetNewPassword)) {
+      setPwError(PASSWORD_REQUIREMENTS_MSG);
       return;
     }
 
@@ -294,7 +325,7 @@ export function UserProfileSidebar() {
       const { confirmResetPassword } = await import("aws-amplify/auth");
       await confirmResetPassword({
         username: user.email,
-        confirmationCode: resetCode,
+        confirmationCode: resetCode.trim(),
         newPassword: resetNewPassword,
       });
 
@@ -304,6 +335,11 @@ export function UserProfileSidebar() {
         resetPasswordDialog();
       }, 800);
     } catch (e) {
+      if (isInvalidResetCodeError(e)) {
+        setForgotPasswordStep("verify-code");
+        setPwError("Your reset code is no longer valid. Please enter the code again.");
+        return;
+      }
       setPwError(e instanceof Error ? e.message : "Failed to reset password");
     } finally {
       setIsResettingPassword(false);
@@ -318,6 +354,7 @@ export function UserProfileSidebar() {
     } catch (e) {
       // Ignore errors
     }
+    await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
     dispatch(logout());
     dispatch(endVisit());
     router.push("/login");
@@ -335,14 +372,22 @@ export function UserProfileSidebar() {
       {/* Sidebar panel */}
       <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[320px] md:w-[400px] border-l border-slate-100 bg-white flex flex-col z-50 shadow-xl">
         {/* Gradient header */}
-        <div className="bg-gradient-to-r from-brand-pink to-brand-orange p-4 sm:p-6 text-white">
-          <div className="flex items-center gap-3 sm:gap-4">
+        <div className="bg-gradient-to-r from-brand-pink to-brand-orange p-4 sm:p-6 text-white relative">
+          <button
+            type="button"
+            onClick={() => dispatch(setShowUserSidebar(false))}
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 p-1.5 rounded-full hover:bg-white/20 transition-colors"
+            aria-label="Close profile"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div className="flex items-center gap-3 sm:gap-4 pr-8">
             <div className="h-12 w-12 sm:h-16 sm:w-16 rounded-full ring-4 ring-white/30 bg-white flex items-center justify-center text-black text-lg sm:text-2xl font-bold flex-shrink-0">
               {initials}
             </div>
             <div className="min-w-0">
               <h3 className="font-bold text-base sm:text-xl truncate">
-                Dr. {user.firstName} {user.lastName}
+                {user.firstName} {user.lastName}
               </h3>
               <p className="text-white/80 text-sm truncate">{user.speciality}</p>
             </div>
@@ -425,7 +470,7 @@ export function UserProfileSidebar() {
         {/* Footer */}
         <div className="p-4 sm:p-6 border-t border-slate-100">
           <div className="text-xs text-slate-400 mb-3 text-center">
-            Minutes left - {user.totalMinutesLeft}
+            Minutes Left – {user.totalMinutesLeft}
           </div>
           <button
             onClick={handleLogout}
@@ -541,13 +586,13 @@ export function UserProfileSidebar() {
                   </div>
                 </div>
               </>
-            ) : (
+            ) : forgotPasswordStep === "verify-code" ? (
               <>
                 <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-slate-700">
-                  Enter the reset code sent to {user.email}, then choose a new password.
+                  Enter the reset code sent to {user.email}.
                 </div>
                 <div>
-                  <label className="text-xs sm:text-sm text-slate-700 block mb-1">Verification Code</label>
+                  <label className="text-xs sm:text-sm text-slate-700 block mb-1">Reset Code</label>
                   <input
                     type="text"
                     placeholder="Enter code"
@@ -555,6 +600,12 @@ export function UserProfileSidebar() {
                     onChange={(e) => setResetCode(e.target.value)}
                     className="w-full h-9 sm:h-10 rounded-md border border-slate-200 px-3 text-xs sm:text-sm focus:outline-none focus:border-brand-blue"
                   />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-slate-700">
+                  Code verified. Choose a new password for {user.email}.
                 </div>
                 <div>
                   <label className="text-xs sm:text-sm font-medium text-slate-700 flex items-center gap-2 mb-1">
@@ -616,21 +667,31 @@ export function UserProfileSidebar() {
               onClick={
                 forgotPasswordStep === "idle"
                   ? handleForgotPassword
-                  : () => {
-                      setForgotPasswordStep("idle");
-                      setPwError("");
-                      setPwSuccess("");
-                      setResetCode("");
-                      setResetNewPassword("");
-                      setResetConfirmPassword("");
-                      setShowResetNewPw(false);
-                      setShowResetConfirmPw(false);
-                    }
+                  : forgotPasswordStep === "verify-code"
+                    ? () => {
+                        setForgotPasswordStep("idle");
+                        setPwError("");
+                        setPwSuccess("");
+                        setResetCode("");
+                      }
+                    : () => {
+                        setForgotPasswordStep("verify-code");
+                        setPwError("");
+                        setPwSuccess("");
+                        setResetNewPassword("");
+                        setResetConfirmPassword("");
+                        setShowResetNewPw(false);
+                        setShowResetConfirmPw(false);
+                      }
               }
               className="text-left text-sm text-brand-blue hover:underline disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isChangingPassword || isResettingPassword}
             >
-              {forgotPasswordStep === "idle" ? "Forgot Password?" : "Back To Change Password"}
+              {forgotPasswordStep === "idle"
+                ? "Forgot Password?"
+                : forgotPasswordStep === "verify-code"
+                  ? "Back To Change Password"
+                  : "Back To Verify Code"}
             </button>
             <div className="flex gap-4 flex-col sm:flex-row justify-end">
             <button
@@ -644,17 +705,27 @@ export function UserProfileSidebar() {
               Cancel
             </button>
             <button
-              onClick={forgotPasswordStep === "idle" ? handleChangePassword : handleConfirmForgotPassword}
+              onClick={
+                forgotPasswordStep === "idle"
+                  ? handleChangePassword
+                  : forgotPasswordStep === "verify-code"
+                    ? handleVerifyResetCode
+                    : handleConfirmForgotPassword
+              }
               className="bg-brand-blue hover:bg-brand-pink text-white rounded-md px-4 py-2 text-sm sm:text-base transition-colors"
               disabled={isChangingPassword || isResettingPassword}
             >
               {isChangingPassword || isResettingPassword
                 ? forgotPasswordStep === "idle"
                   ? "Updating..."
-                  : "Submitting..."
+                  : forgotPasswordStep === "verify-code"
+                    ? "Verifying..."
+                    : "Submitting..."
                 : forgotPasswordStep === "idle"
                   ? "Confirm"
-                  : "Reset Password"}
+                  : forgotPasswordStep === "verify-code"
+                    ? "Verify Code"
+                    : "Reset Password"}
             </button>
             </div>
           </div>

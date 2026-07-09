@@ -19,8 +19,8 @@ const initialState: UserState = {
   phone: "",
   speciality: "",
   clinicName: "",
-  totalMinutesLeft: 240,
-  totalMinutesAllowed: 600,
+  totalMinutesLeft: 2500,
+  totalMinutesAllowed: 2500,
   isLoggedIn: false,
 };
 
@@ -47,8 +47,11 @@ const userSlice = createSlice({
     logout(state) {
       state.isLoggedIn = false;
     },
+    setMinutesLeft(state, action: PayloadAction<number>) {
+      state.totalMinutesLeft = action.payload;
+    },
   },
 });
 
-export const { setUser, setLoggedIn, updateProfile, logout } = userSlice.actions;
+export const { setUser, setLoggedIn, updateProfile, logout, setMinutesLeft } = userSlice.actions;
 export default userSlice.reducer;

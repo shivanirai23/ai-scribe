@@ -116,35 +116,61 @@ export default function PricingPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await apiFetch("/api/bland-call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone_number: `${activeFormData.countryCode}${activeFormData.phoneNumber}`,
-          request_data: {
-            email: activeFormData.workEmail,
-            name: activeFormData.fullName,
-          },
-        }),
-      });
+      const phoneNumber = `${activeFormData.countryCode}${activeFormData.phoneNumber}`;
+      const description = [
+        "A user requested a CarePilot call-back from the premium page.",
+        "",
+        `Clinic: ${activeFormData.clinicalName}`,
+        `Phone: ${phoneNumber}`,
+        `Work Email: ${activeFormData.workEmail}`,
+      ].join("\n");
 
-      if (response.ok) {
-        toast.success("Thank you! We will call you shortly.", {
-          duration: 5000,
-          style: { background: "#e8f3da" },
-        });
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        toast.error(errorData.message || "Failed to submit request. Please try again.", {
+      const helpPayload = new FormData();
+      helpPayload.append("name", activeFormData.fullName);
+      helpPayload.append("email", activeFormData.workEmail);
+      helpPayload.append("category", "Premium Upgrade");
+      helpPayload.append("subject", "CarePilot Call Me Request");
+      helpPayload.append("description", description);
+
+      const [helpResponse, callResponse] = await Promise.all([
+        apiFetch("/api/help/contact", {
+          method: "POST",
+          body: helpPayload,
+        }),
+        apiFetch("/api/bland-call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone_number: phoneNumber,
+            request_data: {
+              email: activeFormData.workEmail,
+              name: activeFormData.fullName,
+            },
+          }),
+        }),
+      ]);
+
+      if (!helpResponse.ok) {
+        const errorData = await helpResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to submit request. Please try again.");
+      }
+
+      if (!callResponse.ok) {
+        console.warn("Call request could not be queued, but support was notified by email.");
+      }
+
+      toast.success("Thank you! We will call you shortly.", {
+        duration: 5000,
+        style: { background: "#e8f3da" },
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Network error. Please check your connection and try again.",
+        {
           duration: 5000,
           style: { background: "#f3dada" },
-        });
-      }
-    } catch {
-      toast.error("Network error. Please check your connection and try again.", {
-        duration: 5000,
-        style: { background: "#f3dada" },
-      });
+        }
+      );
     } finally {
       setIsSubmitting(false);
     }
