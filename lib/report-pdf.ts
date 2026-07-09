@@ -1,5 +1,7 @@
 import type { ReportData } from "@/store/slices/recordingSlice";
 import { cleanDateValue } from "@/lib/utils";
+import { formatMedicationFrequency } from "@/lib/medication";
+import { getProcedureTypeBadge } from "@/lib/procedure-types";
 
 export interface ExportVisitReportPdfOptions {
   reportData: ReportData;
@@ -277,17 +279,9 @@ export async function exportVisitReportPdf({
       doc.setFont("helvetica", "normal");
 
       const dosage = med.dosage ? `${med.dosage} ${med.unit}`.trim() : "N/A";
-      let frequencyText = "N/A";
-      if (med.frequency) {
-        const parts = [];
-        if (med.frequency.morning) parts.push(`Morning: ${med.frequency.morning}`);
-        if (med.frequency.afternoon) parts.push(`Afternoon: ${med.frequency.afternoon}`);
-        if (med.frequency.night) parts.push(`Night: ${med.frequency.night}`);
-        if (parts.length > 0) frequencyText = parts.join(", ");
-      }
 
       addParagraph(`Dosage: ${dosage}`, 5);
-      addParagraph(`Frequency: ${frequencyText}`, 5);
+      addParagraph(`Frequency: ${formatMedicationFrequency(med.frequency)}`, 5);
       addParagraph(`Start Date: ${med.start_date || "N/A"}`, 5);
       addParagraph(`Duration: ${med.days ? `${med.days} days` : "N/A"}`, 5);
       addParagraph(`Instruction: ${med.instruction || "N/A"}`, 5);
@@ -333,13 +327,8 @@ export async function exportVisitReportPdf({
             ? item.procedure_name
             : "";
       const procedureType =
-        typeof item.procedure_type === "string" ? item.procedure_type : "procedure";
-      const typeLabel =
-        procedureType === "imaging"
-          ? "Radiology Orders"
-          : procedureType === "laboratory"
-            ? "Lab Procedure"
-            : "In House Procedure";
+        typeof item.procedure_type === "string" ? item.procedure_type : undefined;
+      const typeLabel = getProcedureTypeBadge(procedureType);
       return {
         name,
         typeLabel,

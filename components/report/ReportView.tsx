@@ -22,6 +22,8 @@ import {
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { apiFetch, cleanDateValue, withoutBasePath } from "@/lib/utils";
+import { formatMedicationFrequency } from "@/lib/medication";
+import { getProcedureTypeBadge } from "@/lib/procedure-types";
 import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
 import { exportVisitReportPdf } from "@/lib/report-pdf";
 import {
@@ -599,14 +601,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             : typeof item.clinical_context === "string"
               ? item.clinical_context
               : "N/A",
-        badge:
-          typeof item.procedure_type === "string" && item.procedure_type.trim()
-            ? item.procedure_type === "imaging"
-              ? "Radiology Orders"
-              : item.procedure_type === "laboratory"
-                ? "Lab Procedure"
-                : "In House Procedure"
-            : "In House Procedure",
+        badge: getProcedureTypeBadge(
+          typeof item.procedure_type === "string" ? item.procedure_type : undefined
+        ),
       };
     })
     .filter((item): item is { name: string; date: string; notes: string; badge: string } => item !== null);
@@ -1058,7 +1055,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-600">Frequency</p>
-                    <p className="text-sm text-slate-800">M: {med.frequency.morning ?? "0"}</p>
+                    <p className="text-sm text-slate-800">{formatMedicationFrequency(med.frequency)}</p>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-600">Start Date</p>

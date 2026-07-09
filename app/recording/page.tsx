@@ -116,6 +116,7 @@ export default function RecordingPage() {
   const dispatch = useAppDispatch();
   const router = useRouter();
   const recording = useAppSelector((s) => s.recording);
+  const user = useAppSelector((s) => s.user);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [noTranscriptToast, setNoTranscriptToast] = useState(false);
   const [conversationText, setConversationText] = useState("");
@@ -860,6 +861,7 @@ export default function RecordingPage() {
         open={recording.showQRCode}
         onClose={() => dispatch(setShowQRCode(false))}
         visitId={recording.visitId}
+        patientId={user.email}
       />
 
       {recording.isRecording && recording.currentView === "recording" && (
