@@ -13,6 +13,12 @@ const allowedTypes = new Set([
 
 const maxFileSize = 10 * 1024 * 1024;
 const maxFiles = 5;
+const DEFAULT_SUPPORT_EMAIL = "info@hikigai.ai";
+
+function formatSender(name: string, email: string) {
+  const safeName = name.replace(/"/g, "'");
+  return `"${safeName}" <${email}>`;
+}
 
 function toText(value: FormDataEntryValue | null) {
   return typeof value === "string" ? value.trim() : "";
@@ -76,14 +82,14 @@ export async function POST(request: Request) {
     const pass = process.env.SMTP_PASS;
     const secure = process.env.SMTP_SECURE === "true";
 
-    const supportEmail = process.env.HELP_SUPPORT_EMAIL || process.env.SMTP_FROM;
-    const fromEmail = process.env.SMTP_FROM || supportEmail;
+    const supportEmail = process.env.HELP_SUPPORT_EMAIL || DEFAULT_SUPPORT_EMAIL;
+    const senderEmail = formatSender(name, email);
 
-    if (!host || !user || !pass || !supportEmail || !fromEmail) {
+    if (!host || !user || !pass) {
       return NextResponse.json(
         {
           error:
-            "Support email is not configured on the server. Please set SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_FROM, and HELP_SUPPORT_EMAIL.",
+            "Support email is not configured on the server. Please set SMTP_HOST, SMTP_USER, and SMTP_PASS.",
         },
         { status: 500 }
       );
@@ -129,7 +135,7 @@ export async function POST(request: Request) {
     ].join("\n");
 
     await transporter.sendMail({
-      from: fromEmail,
+      from: senderEmail,
       to: supportEmail,
       replyTo: email,
       subject: `[Help] ${category}${subject ? ` - ${subject}` : ""} - ${name}`,

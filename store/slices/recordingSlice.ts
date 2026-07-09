@@ -23,6 +23,7 @@ export interface RecordingState {
   recordingMode: RecordingMode;
   currentView: AppView;
   transcription: string[];
+  formattedTranscription: string[] | null;
   pendingBufferCount: number;
   selectedLanguage: string;
   questionnaireStarted: boolean;
@@ -86,6 +87,7 @@ const initialState: RecordingState = {
   recordingMode: "normal",
   currentView: "recording",
   transcription: [],
+  formattedTranscription: null,
   pendingBufferCount: 0,
   selectedLanguage: "English",
   questionnaireStarted: false,
@@ -112,6 +114,7 @@ const recordingSlice = createSlice({
       state.isConnecting = false;
       state.currentView = "recording";
       state.transcription = [];
+      state.formattedTranscription = null;
       state.reportData = null;
     },
     endVisit() {
@@ -144,6 +147,9 @@ const recordingSlice = createSlice({
     },
     setTranscription(state, action: PayloadAction<string[]>) {
       state.transcription = action.payload;
+    },
+    setFormattedTranscription(state, action: PayloadAction<string[] | null>) {
+      state.formattedTranscription = action.payload;
     },
     setReportData(state, action: PayloadAction<ReportData>) {
       state.reportData = action.payload;
@@ -215,6 +221,7 @@ export const {
   setSpeechDetected,
   addTranscription,
   setTranscription,
+  setFormattedTranscription,
   setReportData,
   setReportLoading,
   setCurrentView,

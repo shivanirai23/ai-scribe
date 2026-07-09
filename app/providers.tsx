@@ -1,16 +1,17 @@
 "use client";
 
-
-
 import { Provider } from "react-redux";
 import { store, persistor } from "@/store";
 import { PersistGate } from "redux-persist/integration/react";
 import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setUser, setLoggedIn } from "@/store/slices/userSlice";
-// Dynamic import to avoid SSR issues
-const fetchUserAttributes = typeof window !== "undefined" ? require("aws-amplify/auth").fetchUserAttributes : undefined;
+import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { fetchUserAttributes } from "aws-amplify/auth";
 
+if (typeof window !== "undefined") {
+  configureCognitoAuth();
+}
 
 function UserSessionSync() {
   const dispatch = useDispatch();
@@ -18,8 +19,9 @@ function UserSessionSync() {
 
   useEffect(() => {
     async function syncUser() {
-      if (!isLoggedIn && fetchUserAttributes) {
+      if (!isLoggedIn) {
         try {
+          configureCognitoAuth();
           const attributes = await fetchUserAttributes();
           if (attributes && attributes.email) {
             const firstName = attributes.given_name ?? attributes.name?.split(" ")[0] ?? "";

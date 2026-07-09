@@ -30,7 +30,6 @@ import {
   setReportData,
 } from "@/store/slices/recordingSlice";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 
 function RetryButton({ onClick, isLoading = false }: { onClick: () => void; isLoading?: boolean }) {
@@ -51,6 +50,21 @@ function buildTranscriptMessage(transcription: string[]) {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .join("\n");
+}
+
+function getApiError(
+  response: Response,
+  data: { error?: string },
+  fallbackMessage: string
+): string | null {
+  const responseError =
+    typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+
+  if (!response.ok || responseError) {
+    return responseError || fallbackMessage;
+  }
+
+  return null;
 }
 
 function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
@@ -87,18 +101,16 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
       });
 
       const data = (await response.json()) as { visit_notes?: string[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Visit notes retry failed");
+      const apiError = getApiError(response, data, "Visit notes retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const mappedVisitNotes = (data.visit_notes || []).filter((item) => item.trim().length > 0);
       dispatch(
         setReportData({
           ...reportData,
-          visitNotes:
-            mappedVisitNotes.length > 0
-              ? [mappedVisitNotes.join("\n\n")]
-              : ["No visit notes were returned by the agent."],
+          visitNotes: mappedVisitNotes.length > 0 ? [mappedVisitNotes.join("\n\n")] : [],
         })
       );
     } catch (error) {
@@ -130,8 +142,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "SOAP notes retry failed");
+      const apiError = getApiError(response, data, "SOAP notes retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const subjective = data.subjective?.trim() || "";
@@ -177,8 +190,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
           error?: string;
         };
 
-      if (!response.ok) {
-        throw new Error(data.error || "ICD-10 retry failed");
+      const apiError = getApiError(response, data, "ICD-10 retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -215,8 +229,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "CPT retry failed");
+      const apiError = getApiError(response, data, "CPT retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -253,8 +268,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "CPT-2 retry failed");
+      const apiError = getApiError(response, data, "CPT-2 retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -292,8 +308,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "E/M retry failed");
+      const apiError = getApiError(response, data, "E/M retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -315,10 +332,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
     }
   };
 
-  const isVisitSummaryMissing =
-    !reportData.visitNotes[0] ||
-    reportData.visitNotes[0].startsWith("Visit notes generation failed:") ||
-    reportData.visitNotes[0] === "No visit notes were returned by the agent.";
+  const isVisitSummaryMissing = !reportData.visitNotes[0];
 
   const soapSections = [
     { key: "subjective", label: "Subjective" },
@@ -340,6 +354,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
               )}
             </div>
           </div>
+          {!!retryErrors.visit && (
+            <p className="text-xs text-rose-600 mb-2">{retryErrors.visit}</p>
+          )}
           <div className="text-justify whitespace-pre-line overflow-y-auto flex-1 min-h-0 pr-4 text-sm text-slate-700">
             {reportData.visitNotes[0] || (
               <p className="text-slate-400 italic">No visit summary available.</p>
@@ -507,6 +524,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
   const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | "referrals" | null>(null);
+  const [retryingVaccines, setRetryingVaccines] = useState(false);
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
 
   if (reportLoading) {
@@ -542,7 +560,27 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     })
     .filter((item): item is { name: string; date: string; notes: string } => item !== null);
   const followup = reportData.followup.follow_up_appointment;
-  const vaccines = reportData.vaccine.vaccine as Array<{ name: string }>;
+  const vaccines = (reportData.vaccine.vaccine as Array<Record<string, unknown>>)
+    .map((item) => {
+      const name =
+        typeof item.name === "string"
+          ? item.name
+          : typeof item.vaccine_name === "string"
+            ? item.vaccine_name
+            : "";
+      if (!name.trim()) return null;
+      return {
+        name,
+        dose:
+          typeof item.dose === "string" && item.dose.trim()
+            ? item.dose
+            : typeof item.dose_number === "string" && item.dose_number.trim()
+              ? item.dose_number
+              : "N/A",
+        date: typeof item.date === "string" && item.date.trim() ? item.date : "N/A",
+      };
+    })
+    .filter((item): item is { name: string; dose: string; date: string } => item !== null);
   const procedures = (reportData.procedure.procedure as Array<Record<string, unknown>>)
     .map((item) => {
       const name =
@@ -636,8 +674,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { medication?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Medication retry failed");
+      const apiError = getApiError(response, data, "Medication retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const today = new Date().toLocaleDateString("en-US", {
@@ -766,8 +805,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { lab_test?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Lab tests retry failed");
+      const apiError = getApiError(response, data, "Lab tests retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -799,8 +839,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { follow_ups?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Follow-up retry failed");
+      const apiError = getApiError(response, data, "Follow-up retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       const firstFollowUp = (data.follow_ups || [])[0];
@@ -888,8 +929,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(data.error || "Procedures retry failed");
+      const apiError = getApiError(response, data, "Procedures retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -910,6 +952,41 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     }
   };
 
+  const retryVaccines = async () => {
+    if (!transcriptMessage) return;
+    setRetryingVaccines(true);
+    setRetryErrors((prev) => ({ ...prev, vaccines: "" }));
+    try {
+      const response = await apiFetch("/api/vaccines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: transcriptMessage }),
+      });
+
+      const data = (await response.json()) as { vaccine?: unknown[]; error?: string };
+      const apiError = getApiError(response, data, "Vaccines retry failed");
+      if (apiError) {
+        throw new Error(apiError);
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          vaccine: {
+            vaccine: data.vaccine || [],
+          },
+        })
+      );
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        vaccines: error instanceof Error ? error.message : "Vaccines retry failed",
+      }));
+    } finally {
+      setRetryingVaccines(false);
+    }
+  };
+
   const retryReferrals = async () => {
     if (!transcriptMessage) return;
     setRetryingSection("referrals");
@@ -921,8 +998,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         body: JSON.stringify({ message: transcriptMessage }),
       });
       const data = (await response.json()) as { referrals?: unknown[]; error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "Referrals retry failed");
+      const apiError = getApiError(response, data, "Referrals retry failed");
+      if (apiError) {
+        throw new Error(apiError);
       }
 
       dispatch(
@@ -1018,11 +1096,13 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-medium text-lg text-black flex items-center gap-2">
               <ClipboardCheck className="h-4 w-4 text-slate-400" />
-              Procedures
+              Procedures &amp; Vaccines
             </h3>
             {procedures.length === 0 && <RetryButton onClick={retryProcedures} isLoading={retryingSection === "procedures"} />}
           </div>
           {!!retryErrors.procedures && <p className="text-xs text-rose-600 mb-2">{retryErrors.procedures}</p>}
+
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Procedures</p>
           {procedures.length === 0 ? (
             <div className="text-center p-4 text-slate-500">No procedure information available</div>
           ) : (
@@ -1037,6 +1117,30 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
                   <p className="text-sm text-slate-800">{procedure.date}</p>
                   <p className="text-sm font-semibold text-slate-600 mt-1">Note</p>
                   <p className="text-sm text-slate-800">{procedure.notes}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-between items-center mt-3 mb-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Vaccines</p>
+            {vaccines.length === 0 && <RetryButton onClick={retryVaccines} isLoading={retryingVaccines} />}
+          </div>
+          {!!retryErrors.vaccines && <p className="text-xs text-rose-600 mb-2">{retryErrors.vaccines}</p>}
+          {vaccines.length === 0 ? (
+            <div className="text-center p-4 text-slate-500">No vaccines administered</div>
+          ) : (
+            <div className="space-y-2">
+              {vaccines.map((vaccine, i) => (
+                <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-slate-900">{vaccine.name}</p>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 font-medium">Vaccine</span>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Dose</p>
+                  <p className="text-sm text-slate-800">{vaccine.dose}</p>
+                  <p className="text-sm font-semibold text-slate-600 mt-1">Date</p>
+                  <p className="text-sm text-slate-800">{vaccine.date}</p>
                 </div>
               ))}
             </div>
@@ -1096,19 +1200,6 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         </div>
       </div>
 
-      {vaccines.length > 0 && (
-        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)]">
-          <h3 className="font-medium text-lg text-black mb-2">Vaccines</h3>
-          <div className="space-y-2">
-            {vaccines.map((v, i) => (
-              <div key={i} className="bg-white p-2 rounded-xl border border-slate-50 shadow-md">
-                <p className="font-medium text-sm">{v.name}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="flex justify-end items-center gap-2 text-xs text-slate-500 pt-1">
         <span>Was this helpful?</span>
         <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
@@ -1124,9 +1215,11 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
 
 function TranscriptionTab() {
   const transcription = useAppSelector((s) => s.recording.transcription);
+  const formattedTranscription = useAppSelector((s) => s.recording.formattedTranscription);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
+  const displayTranscription = formattedTranscription ?? transcription;
 
-  const speakerRows = transcription
+  const speakerRows = displayTranscription
     .map((line, index) => {
       const doctorMatch = line.match(/^doctor\s*:\s*(.*)$/i);
       if (doctorMatch) {
@@ -1198,15 +1291,17 @@ export function ReportView() {
   const router = useRouter();
   const pathname = usePathname();
   const isVisitDetailsRoute = withoutBasePath(pathname ?? "") === "/visit-details";
-  const { reportData, reportLoading, visitId, transcription } = useAppSelector((s) => s.recording);
+  const { reportData, reportLoading, visitId, transcription, formattedTranscription } = useAppSelector((s) => s.recording);
   const transcriptMessage = buildTranscriptMessage(transcription);
-  const [showBackWarning, setShowBackWarning] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
+  const displayTranscription = formattedTranscription ?? transcription;
   const [isExporting, setIsExporting] = useState(false);
   const [exportWarning, setExportWarning] = useState("");
 
   const handleBack = () => {
-    setShowBackWarning(true);
+    dispatch(setCurrentView("recording"));
+    if (isVisitDetailsRoute) {
+      router.push("/recording");
+    }
   };
 
   const handleEndVisit = () => {
@@ -1402,10 +1497,31 @@ export function ReportView() {
       );
       y += 3;
 
-      const vaccines = reportData.vaccine.vaccine as Array<{ name: string }>;
+      const vaccines = (reportData.vaccine.vaccine as Array<Record<string, unknown>>)
+        .map((item) => {
+          const name =
+            typeof item.name === "string"
+              ? item.name
+              : typeof item.vaccine_name === "string"
+                ? item.vaccine_name
+                : "";
+          if (!name.trim()) return null;
+          const dose =
+            typeof item.dose === "string"
+              ? item.dose
+              : typeof item.dose_number === "string"
+                ? item.dose_number
+                : "";
+          const date = typeof item.date === "string" ? item.date : "";
+          return { name, dose, date };
+        })
+        .filter((item): item is { name: string; dose: string; date: string } => item !== null);
       if (vaccines.length > 0) {
         addText("Vaccines", 11, true);
-        vaccines.forEach((v) => addText(v.name, 10));
+        vaccines.forEach((v) => {
+          const details = [v.dose, v.date].filter((part) => part && part.trim()).join(", ");
+          addText(`${v.name}${details ? ` - ${details}` : ""}`, 10);
+        });
         y += 3;
       }
 
@@ -1437,10 +1553,10 @@ export function ReportView() {
 
       // 6. Full Transcription
       addSectionHeader("Full Transcription");
-      if (transcription.length === 0) {
+      if (displayTranscription.length === 0) {
         addText("Insufficient content", 10);
       } else {
-        transcription.forEach((text) => addText(text, 10));
+        displayTranscription.forEach((text) => addText(text, 10));
       }
 
       doc.save(`visit-report-${visitId || "draft"}.pdf`);
@@ -1574,53 +1690,6 @@ export function ReportView() {
         </main>
       )}
 
-      {/* Back Warning Dialog */}
-      <Dialog open={showBackWarning} onOpenChange={setShowBackWarning}>
-        <DialogContent
-          className="max-w-md p-6"
-          showClose={false}
-          hiddenTitle="Unsaved changes"
-          hiddenDescription="Warns that going back will discard current visit note edits"
-        >
-          <h2 className="text-lg font-semibold text-slate-700 mb-2">Unsaved Changes</h2>
-          <p className="text-sm text-slate-600 mb-4">
-            You have unsaved changes to the visit notes. Going back will discard these changes.
-          </p>
-          <div className="flex items-center gap-2 mb-4">
-            <input
-              type="checkbox"
-              id="dont-show-again"
-              checked={dontShowAgain}
-              onChange={(e) => setDontShowAgain(e.target.checked)}
-              className="rounded"
-            />
-            <label htmlFor="dont-show-again" className="text-sm text-slate-600">
-              Don&apos;t show this again
-            </label>
-          </div>
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => setShowBackWarning(false)}
-              className="border border-slate-200 rounded-md px-4 py-2 text-sm hover:bg-slate-50"
-            >
-              Stay
-            </button>
-            <button
-              onClick={() => {
-                setShowBackWarning(false);
-                if (isVisitDetailsRoute) {
-                  router.push("/recording");
-                } else {
-                  dispatch(setCurrentView("recording"));
-                }
-              }}
-              className="bg-brand-blue text-white hover:bg-brand-pink rounded-md px-4 py-2 text-sm transition-colors"
-            >
-              Discard &amp; Go Back
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

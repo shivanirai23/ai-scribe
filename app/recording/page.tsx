@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -18,8 +18,7 @@ import {
   setReportData,
   setConnectionState,
   setSpeechDetected,
-  setPendingBufferCount,
-  setTranscription,
+  setFormattedTranscription,
 } from "@/store/slices/recordingSlice";
 import { Header, UserProfileSidebar } from "@/components/recording/Header";
 import { AlertBanners } from "@/components/recording/AlertBanners";
@@ -31,6 +30,7 @@ import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import type { ReportData } from "@/store/slices/recordingSlice";
 import { apiFetch } from "@/lib/utils";
+import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 
 interface AlertItem {
   type: AlertType;
@@ -56,94 +56,6 @@ const EMPTY_REPORT: ReportData = {
   procedure: { procedure: [] },
   referrals: [],
 };
-
-const SAMPLE_RATE = 16000;
-const CHUNK_SIZE = 4096;
-const MAX_UTTERANCE_SEC = 3.0;
-const MIN_UTTERANCE_SEC = 0.18;
-const SILENCE_FLUSH_SEC = 0.8;
-const SPEECH_THRESHOLD = 0.01;
-const KEEPALIVE_INTERVAL_MS = 10_000;
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_BASE_DELAY_MS = 1500;
-
-interface LiveConfigResponse {
-  baseUrl: string;
-  apiKey: string;
-  projectId: string;
-  agentName: string;
-  error?: string;
-  diagnostics?: {
-    requestPath?: string;
-    refererPath?: string;
-    host?: string | null;
-    basepathEnv?: string | null;
-    usingFallbacks?: {
-      projectId?: boolean;
-      platformUrl?: boolean;
-    };
-    hasApiKey?: boolean;
-  };
-}
-
-function createSessionId() {
-  if (typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function encodeWav(float32Chunks: Float32Array[], sampleRate: number) {
-  let totalSamples = 0;
-  for (const chunk of float32Chunks) {
-    totalSamples += chunk.length;
-  }
-
-  const dataBytes = totalSamples * 2;
-  const buffer = new ArrayBuffer(44 + dataBytes);
-  const view = new DataView(buffer);
-
-  const writeString = (offset: number, value: string) => {
-    for (let i = 0; i < value.length; i++) {
-      view.setUint8(offset + i, value.charCodeAt(i));
-    }
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + dataBytes, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(36, "data");
-  view.setUint32(40, dataBytes, true);
-
-  let offset = 44;
-  for (const chunk of float32Chunks) {
-    for (let i = 0; i < chunk.length; i++) {
-      const sample = Math.max(-1, Math.min(1, chunk[i]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
-  }
-
-  return buffer;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
 
 function normalizeSpeaker(value: string) {
   const lower = value.trim().toLowerCase();
@@ -207,76 +119,6 @@ export default function RecordingPage() {
   const [noTranscriptToast, setNoTranscriptToast] = useState(false);
   const [conversationText, setConversationText] = useState("");
   const [liveDraft, setLiveDraft] = useState("");
-  const liveDraftRef = useRef("");
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const keepaliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  const pendingResponseRef = useRef<string[]>([]);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const manualSocketCloseRef = useRef(false);
-  const liveConfigRef = useRef<LiveConfigResponse | null>(null);
-
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const micStreamRef = useRef<MediaStream | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const recordingRef = useRef(false);
-  const pausedRef = useRef(false);
-  const utteranceBufRef = useRef<Float32Array[]>([]);
-  const utteranceSamplesRef = useRef(0);
-  const firstFrameAtRef = useRef<number | null>(null);
-  const lastAudioAtRef = useRef<number | null>(null);
-  const silenceSinceRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    recordingRef.current = recording.isRecording;
-    pausedRef.current = recording.isPaused;
-  }, [recording.isRecording, recording.isPaused]);
-
-  useEffect(() => {
-    liveDraftRef.current = liveDraft;
-  }, [liveDraft]);
-
-  useEffect(() => {
-    return () => {
-      if (scriptProcessorRef.current) {
-        scriptProcessorRef.current.disconnect();
-        scriptProcessorRef.current = null;
-      }
-      if (audioCtxRef.current) {
-        void audioCtxRef.current.close();
-        audioCtxRef.current = null;
-      }
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach((track) => track.stop());
-        micStreamRef.current = null;
-      }
-
-      if (keepaliveTimerRef.current) {
-        clearInterval(keepaliveTimerRef.current);
-        keepaliveTimerRef.current = null;
-      }
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-
-      const socket = wsRef.current;
-      if (socket) {
-        manualSocketCloseRef.current = true;
-        socket.onopen = null;
-        socket.onmessage = null;
-        socket.onerror = null;
-        socket.onclose = null;
-        socket.close(1000, "cleanup");
-      }
-      wsRef.current = null;
-      dispatch(setSpeechDetected(false));
-      dispatch(setPendingBufferCount(0));
-      dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-    };
-  }, [dispatch]);
 
   const pushAlert = (type: AlertType, id: string) => {
     setAlerts((prev) => {
@@ -287,330 +129,30 @@ export default function RecordingPage() {
     });
   };
 
-  const stopKeepalive = () => {
-    if (keepaliveTimerRef.current) {
-      clearInterval(keepaliveTimerRef.current);
-      keepaliveTimerRef.current = null;
-    }
-  };
-
-  const stopReconnectTimer = () => {
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-  };
-
-  const startKeepalive = () => {
-    stopKeepalive();
-    keepaliveTimerRef.current = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "keepalive" }));
-      }
-    }, KEEPALIVE_INTERVAL_MS);
-  };
-
-  const resetUtterance = () => {
-    utteranceBufRef.current = [];
-    utteranceSamplesRef.current = 0;
-    firstFrameAtRef.current = null;
-    lastAudioAtRef.current = null;
-    silenceSinceRef.current = null;
-    dispatch(setPendingBufferCount(0));
-  };
-
-  const flushUtterance = () => {
-    const buffers = utteranceBufRef.current;
-    const ws = wsRef.current;
-
-    if (!buffers.length || !ws || ws.readyState !== WebSocket.OPEN) {
-      resetUtterance();
-      return;
-    }
-
-    const uttSeconds = utteranceSamplesRef.current / SAMPLE_RATE;
-    if (uttSeconds < MIN_UTTERANCE_SEC) {
-      resetUtterance();
-      return;
-    }
-
-    const wav = encodeWav(buffers, SAMPLE_RATE);
-    ws.send(
-      JSON.stringify({
-        type: "audio",
-        content: arrayBufferToBase64(wav),
-        mime_type: "audio/wav",
-      })
-    );
-
-    resetUtterance();
-  };
-
-  const closeLiveSocket = () => {
-    manualSocketCloseRef.current = true;
-    stopReconnectTimer();
-    stopKeepalive();
-    const socket = wsRef.current;
-    if (socket) {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      socket.close(1000, "cleanup");
-    }
-    wsRef.current = null;
-    dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-  };
-
-  const stopAudioCapture = () => {
-    if (scriptProcessorRef.current) {
-      scriptProcessorRef.current.disconnect();
-      scriptProcessorRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      void audioCtxRef.current.close();
-      audioCtxRef.current = null;
-    }
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach((track) => track.stop());
-      micStreamRef.current = null;
-    }
-    dispatch(setSpeechDetected(false));
-    resetUtterance();
-  };
-
-  const handleAudioProcess = (event: AudioProcessingEvent) => {
-    if (!recordingRef.current || pausedRef.current) {
-      dispatch(setSpeechDetected(false));
-      return;
-    }
-
-    const input = event.inputBuffer.getChannelData(0);
-    let sumSq = 0;
-    for (let i = 0; i < input.length; i++) {
-      sumSq += input[i] * input[i];
-    }
-    const rms = Math.sqrt(sumSq / input.length);
-    const isSpeech = rms >= SPEECH_THRESHOLD;
-    dispatch(setSpeechDetected(isSpeech));
-
-    const now = Date.now() / 1000;
-    if (isSpeech) {
-      if (!utteranceBufRef.current.length) {
-        firstFrameAtRef.current = now;
-      }
-      utteranceBufRef.current.push(new Float32Array(input));
-      utteranceSamplesRef.current += input.length;
-      lastAudioAtRef.current = now;
-      silenceSinceRef.current = null;
-      dispatch(setPendingBufferCount(utteranceBufRef.current.length));
-
-      if (utteranceSamplesRef.current / SAMPLE_RATE >= MAX_UTTERANCE_SEC) {
-        flushUtterance();
-      }
-      return;
-    }
-
-    if (!utteranceBufRef.current.length) {
-      return;
-    }
-
-    if (silenceSinceRef.current === null) {
-      silenceSinceRef.current = now;
-    }
-
-    const hasSilenceFlush =
-      silenceSinceRef.current !== null && now - silenceSinceRef.current >= SILENCE_FLUSH_SEC;
-
-    const hasTimeoutFlush =
-      (firstFrameAtRef.current !== null && now - firstFrameAtRef.current >= MAX_UTTERANCE_SEC) ||
-      (lastAudioAtRef.current !== null && now - lastAudioAtRef.current >= SILENCE_FLUSH_SEC);
-
-    if (hasSilenceFlush || hasTimeoutFlush) {
-      flushUtterance();
-    }
-  };
-
-  const startAudioCapture = async () => {
-    try {
-      micStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: SAMPLE_RATE,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: false,
-        },
-      });
-
-      try {
-        audioCtxRef.current = new AudioContext({ sampleRate: SAMPLE_RATE });
-      } catch {
-        audioCtxRef.current = new AudioContext();
-      }
-
-      const source = audioCtxRef.current.createMediaStreamSource(micStreamRef.current);
-      const processor = audioCtxRef.current.createScriptProcessor(CHUNK_SIZE, 1, 1);
-      processor.onaudioprocess = handleAudioProcess;
-      source.connect(processor);
-      processor.connect(audioCtxRef.current.destination);
-      scriptProcessorRef.current = processor;
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to access microphone";
-      pushAlert("microphone", `mic-error:${message}`);
-      return false;
-    }
-  };
-
-  const connectLiveSocket = async () => {
-    stopReconnectTimer();
-    manualSocketCloseRef.current = false;
-    reconnectAttemptRef.current = 0;
-    dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
-    setLiveDraft("");
-    pendingResponseRef.current = [];
-
-    try {
-      const configResponse = await apiFetch("/api/live-transcriber/config");
-      const config = (await configResponse.json()) as LiveConfigResponse;
-      liveConfigRef.current = config;
-
-      if (!configResponse.ok) {
-        throw new Error(config.error || "Failed to load live transcriber config");
-      }
-
-      const sessionId = createSessionId();
-      sessionIdRef.current = sessionId;
-
-      const openSocket = () =>
-        new Promise<void>((resolve, reject) => {
-          const activeConfig = liveConfigRef.current;
-          const currentSessionId = sessionIdRef.current;
-
-          if (!activeConfig || !currentSessionId) {
-            reject(new Error("Missing reconnect session context"));
-            return;
-          }
-
-          const wsUrl = `${activeConfig.baseUrl.replace(/^http/, "ws")}/api/v1/agents/live-transcriber/live`;
-          const socket = new WebSocket(wsUrl);
-          wsRef.current = socket;
-          let settled = false;
-
-          socket.onopen = () => {
-            socket.send(
-              JSON.stringify({
-                type: "auth",
-                api_key: activeConfig.apiKey,
-                project_id: activeConfig.projectId,
-                session_id: currentSessionId,
-              })
-            );
-            reconnectAttemptRef.current = 0;
-            dispatch(setConnectionState({ isConnected: true, isConnecting: false }));
-            setAlerts((prev) => prev.filter((a) => a.type !== "socket-disconnected"));
-            startKeepalive();
-            if (!settled) {
-              settled = true;
-              resolve();
-            }
-          };
-
-          socket.onmessage = (messageEvent) => {
-            try {
-              const event = JSON.parse(messageEvent.data) as {
-                type?: string;
-                text?: string;
-                content?: string;
-                message?: string;
-              };
-
-              const type = event.type || "";
-              const text = event.text || "";
-
-              if (type === "transcript") {
-                setLiveDraft(text);
-                return;
-              }
-
-              if (type === "response" && text) {
-                pendingResponseRef.current.push(text);
-                return;
-              }
-
-              if (type === "status" && event.content === "complete") {
-                const finalText = pendingResponseRef.current.join(" ").trim();
-                pendingResponseRef.current = [];
-                if (finalText) {
-                  dispatch(addTranscription(finalText));
-                } else if (liveDraftRef.current.trim()) {
-                  dispatch(addTranscription(liveDraftRef.current.trim()));
-                }
-                setLiveDraft("");
-                return;
-              }
-
-              if (type === "error") {
-                const errorMessage = event.message || "Live socket error";
-                pushAlert("socket-disconnected", `socket-error:${errorMessage}`);
-              }
-            } catch {
-              pushAlert("network-slow", "socket-parse-error");
-            }
-          };
-
-          socket.onerror = () => {
-            if (!settled) {
-              settled = true;
-              reject(new Error("WebSocket connection failed"));
-            }
-          };
-
-          socket.onclose = (event) => {
-            stopKeepalive();
-            dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-            if (recordingRef.current) {
-              dispatch(setSpeechDetected(false));
-            }
-
-            if (manualSocketCloseRef.current || event.code === 1000 || event.code === 1001) {
-              return;
-            }
-
-            const canReconnect =
-              reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS && !!liveConfigRef.current;
-
-            if (!canReconnect) {
-              pushAlert("socket-disconnected", "socket-reconnect-exhausted");
-              return;
-            }
-
-            reconnectAttemptRef.current += 1;
-            const delay = Math.min(
-              RECONNECT_BASE_DELAY_MS * reconnectAttemptRef.current,
-              8000
-            );
-            dispatch(setConnectionState({ isConnected: false, isConnecting: true }));
-            pushAlert("socket-disconnected", `socket-reconnect-${reconnectAttemptRef.current}`);
-
-            stopReconnectTimer();
-            reconnectTimerRef.current = setTimeout(async () => {
-              try {
-                await openSocket();
-              } catch {
-                // onclose/onerror handlers will continue retry flow.
-              }
-            }, delay);
-          };
-        });
-
-      await openSocket();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to connect live socket";
-      pushAlert("socket-disconnected", `socket-connect:${message}`);
-      dispatch(setConnectionState({ isConnected: false, isConnecting: false }));
-    }
-  };
+  const {
+    startTranscription,
+    disconnect,
+    stopAudioCapture,
+    pauseSendingAudio,
+    resumeSendingAudio,
+    flushDraft,
+  } = useLiveTranscription({
+    onLiveDraft: setLiveDraft,
+    onTurnComplete: (text) => dispatch(addTranscription(text)),
+    onConnectionState: (state) => dispatch(setConnectionState(state)),
+    onSpeechDetected: (detected) => dispatch(setSpeechDetected(detected)),
+    onError: (id) => {
+      const alertType: AlertType = id.startsWith("mic-error:")
+        ? "microphone"
+        : id === "socket-parse-error"
+          ? "network-slow"
+          : "socket-disconnected";
+      pushAlert(alertType, id);
+    },
+    onClearError: (prefix) => {
+      setAlerts((prev) => prev.filter((a) => !a.id.startsWith(prefix)));
+    },
+  });
 
   // Timer tick when recording and not paused
   useEffect(() => {
@@ -621,64 +163,35 @@ export default function RecordingPage() {
     return () => clearInterval(interval);
   }, [recording.isRecording, recording.isPaused, dispatch]);
 
-  const handleStartVisit = async () => {
+  const handleStartVisit = () => {
     const visitId = `visit_${Date.now()}`;
     dispatch(startVisit(visitId));
-    await connectLiveSocket();
   };
 
   const handleStartRecording = async () => {
-    if (!recording.isConnected || recording.isConnecting) {
+    if (recording.isRecording || recording.isConnecting) {
       return;
     }
 
-    const micStarted = await startAudioCapture();
-    if (!micStarted) {
+    const started = await startTranscription();
+    if (!started) {
       return;
     }
 
     dispatch(startRecording());
   };
 
-  const handlePause = () => dispatch(pauseRecording());
-  const handleResume = () => dispatch(resumeRecording());
+  const handlePause = () => {
+    pauseSendingAudio();
+    dispatch(pauseRecording());
+  };
+
+  const handleResume = () => {
+    resumeSendingAudio();
+    dispatch(resumeRecording());
+  };
 
   const generateReportFromMessage = async (rawMessage: string) => {
-    // First, format the transcription using hikigai-transcription-agent
-    let message = rawMessage;
-    try {
-      const formatterResponse = await apiFetch("/api/transcription-formatter", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: rawMessage,
-        }),
-      });
-
-      if (formatterResponse.ok) {
-        const formatterData = (await formatterResponse.json()) as {
-          transcription?: unknown;
-          transcript?: unknown;
-        };
-        const formattedPayload = formatterData.transcription ?? formatterData.transcript;
-        const speakerLines = extractSpeakerLines(formattedPayload);
-
-        if (speakerLines.length > 0) {
-          dispatch(setTranscription(speakerLines));
-          message = speakerLines.join("\n");
-          console.log("[generateReport] Formatted transcription lines:", speakerLines);
-        } else if (typeof formatterData.transcription === "string" && formatterData.transcription.trim()) {
-          message = formatterData.transcription;
-          console.log("[generateReport] Formatted transcription:", message);
-        }
-      }
-    } catch (error) {
-      console.error("[generateReport] Transcription formatter error:", error);
-      // Fall back to raw message if formatter fails
-    }
-
     const callAgentRoute = async <T,>(url: string) => {
       try {
         const response = await apiFetch(url, {
@@ -687,17 +200,20 @@ export default function RecordingPage() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            message,
+            message: rawMessage,
           }),
         });
 
         const data = (await response.json()) as T & { error?: string };
 
-        if (!response.ok) {
+        const responseError =
+          typeof data.error === "string" && data.error.trim() ? data.error.trim() : null;
+
+        if (!response.ok || responseError) {
           return {
             ok: false as const,
-            data,
-            error: data.error || `Request failed for ${url}`,
+            data: null,
+            error: responseError || `Request failed for ${url}`,
           };
         }
 
@@ -715,14 +231,70 @@ export default function RecordingPage() {
       }
     };
 
+    const callTranscriptionFormatter = async () => {
+      try {
+        const formatterResponse = await apiFetch("/api/transcription-formatter", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: rawMessage,
+          }),
+        });
+
+        if (!formatterResponse.ok) {
+          const formatterData = (await formatterResponse.json().catch(() => ({}))) as { error?: string };
+          return {
+            ok: false as const,
+            error: formatterData.error || "Transcription formatter failed",
+          };
+        }
+
+        const formatterData = (await formatterResponse.json()) as {
+          transcription?: unknown;
+          transcript?: unknown;
+          raw?: { output?: { transcript?: unknown } };
+        };
+        const structuredTranscript =
+          formatterData.transcript ?? formatterData.raw?.output?.transcript ?? null;
+        const formattedPayload = structuredTranscript ?? formatterData.transcription;
+        const speakerLines = extractSpeakerLines(formattedPayload);
+
+        if (speakerLines.length > 0) {
+          dispatch(setFormattedTranscription(speakerLines));
+          console.log("[generateReport] Formatted transcription lines:", speakerLines);
+        } else if (typeof formatterData.transcription === "string" && formatterData.transcription.trim()) {
+          const lines = formatterData.transcription
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0);
+          dispatch(setFormattedTranscription(lines.length > 0 ? lines : [formatterData.transcription]));
+          console.log("[generateReport] Formatted transcription:", formatterData.transcription);
+        }
+
+        return {
+          ok: true as const,
+          error: null,
+        };
+      } catch (error) {
+        console.error("[generateReport] Transcription formatter error:", error);
+        return {
+          ok: false as const,
+          error: error instanceof Error ? error.message : "Transcription formatter failed",
+        };
+      }
+    };
+
     const today = new Date().toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",
       year: "numeric",
     });
 
-    const [visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult] =
+    const [formatterResult, visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult, vaccineResult] =
       await Promise.all([
+        callTranscriptionFormatter(),
         callAgentRoute<{
           visit_notes?: string[];
         }>("/api/visit-notes"),
@@ -768,6 +340,9 @@ export default function RecordingPage() {
         callAgentRoute<{
           lab_test?: unknown[];
         }>("/api/lab-tests"),
+        callAgentRoute<{
+          vaccine?: unknown[];
+        }>("/api/vaccines"),
       ]);
 
     const visitData = (visitResult.data || {}) as {
@@ -824,6 +399,10 @@ export default function RecordingPage() {
 
     const labTestData = (labTestResult.data || {}) as {
       lab_test?: unknown[];
+    };
+
+    const vaccineData = (vaccineResult.data || {}) as {
+      vaccine?: unknown[];
     };
 
     const mappedVisitNotes = (visitData.visit_notes || []).filter((item) => item.trim().length > 0);
@@ -1049,7 +628,42 @@ export default function RecordingPage() {
     const mappedCptCodes = cptPipelineData.cpt_codes || [];
     const mappedLabTests = (labTestData.lab_test || []) as unknown[];
 
+    const mappedVaccines = (vaccineData.vaccine || [])
+      .map((item) => {
+        if (typeof item === "string") {
+          return item.trim() ? { name: item.trim() } : null;
+        }
+        if (!item || typeof item !== "object") return null;
+        const vaccine = item as {
+          name?: unknown;
+          vaccine_name?: unknown;
+          dose?: unknown;
+          dose_number?: unknown;
+          date?: unknown;
+        };
+        const name =
+          typeof vaccine.name === "string"
+            ? vaccine.name
+            : typeof vaccine.vaccine_name === "string"
+              ? vaccine.vaccine_name
+              : "";
+        if (!name.trim()) return null;
+        const dose =
+          typeof vaccine.dose === "string"
+            ? vaccine.dose
+            : typeof vaccine.dose_number === "string"
+              ? vaccine.dose_number
+              : "";
+        return {
+          name,
+          ...(dose ? { dose } : {}),
+          ...(typeof vaccine.date === "string" && vaccine.date.trim() ? { date: vaccine.date } : {}),
+        };
+      })
+      .filter((item): item is { name: string; dose?: string; date?: string } => item !== null);
+
     const failedAgents = [
+      formatterResult.ok ? null : `Transcription formatter: ${formatterResult.error}`,
       visitResult.ok ? null : `Visit notes: ${visitResult.error}`,
       soapResult.ok ? null : `SOAP notes: ${soapResult.error}`,
       icdResult.ok ? null : `ICD-10: ${icdResult.error}`,
@@ -1061,17 +675,15 @@ export default function RecordingPage() {
       referralResult.ok ? null : `Referrals: ${referralResult.error}`,
       cptPipelineResult.ok ? null : `CPT pipeline: ${cptPipelineResult.error}`,
       labTestResult.ok ? null : `Lab tests: ${labTestResult.error}`,
+      vaccineResult.ok ? null : `Vaccines: ${vaccineResult.error}`,
     ].filter((item): item is string => item !== null);
 
     dispatch(
       setReportData({
         ...EMPTY_REPORT,
-        visitNotes:
-          mappedVisitNotes.length > 0
-            ? [mappedVisitNotes.join("\n\n")]
-            : visitResult.ok
-              ? ["No visit notes were returned by the agent."]
-              : [`Visit notes generation failed: ${visitResult.error}`],
+        visitNotes: visitResult.ok && mappedVisitNotes.length > 0
+          ? [mappedVisitNotes.join("\n\n")]
+          : [],
         soapNote: {
           subjective: subjective ? { subjective } : {},
           objective: objective ? { objective } : {},
@@ -1101,6 +713,9 @@ export default function RecordingPage() {
         procedure: {
           procedure: mappedProcedures,
         },
+        vaccine: {
+          vaccine: mappedVaccines,
+        },
         referrals: mappedReferrals,
         labtest: {
           lab_test: mappedLabTests,
@@ -1114,11 +729,10 @@ export default function RecordingPage() {
   };
 
   const handleStop = async () => {
-    flushUtterance();
     stopAudioCapture();
-    closeLiveSocket();
+    const draft = flushDraft();
+    disconnect();
 
-    const draft = liveDraftRef.current.trim();
     if (draft) {
       dispatch(addTranscription(draft));
       setLiveDraft("");
@@ -1225,6 +839,7 @@ export default function RecordingPage() {
               isRecording={recording.isRecording}
               isPaused={recording.isPaused}
               hasVisit={!!recording.visitId}
+              hasReport={!!recording.reportData}
               onViewReport={() => dispatch(setCurrentView("report"))}
             />
           </div>
@@ -1244,8 +859,8 @@ export default function RecordingPage() {
           isSpeechDetected={recording.isSpeechDetected}
           isPaused={recording.isPaused}
           transcriptionText={recording.transcription}
-          onPause={() => dispatch(pauseRecording())}
-          onResume={() => dispatch(resumeRecording())}
+          onPause={handlePause}
+          onResume={handleResume}
           onStop={handleStop}
         />
       )}

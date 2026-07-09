@@ -1,18 +1,20 @@
 export const HIKIGAI_AGENT_TIMEOUT_MS = 300000;
+export const HIKIGAI_BACKEND_URL_DEFAULT = "https://backend.hikigaiplatform.io";
 
 export class HikigaiClient {
 	private apiKey: string;
 	private projectId: string;
-	private baseUrl: string;
+	private backendUrl: string;
 	private authToken: string | null;
 	private readonly defaultTimeoutMs: number;
 
-	constructor(apiKey?: string, projectId?: string, baseUrl?: string) {
+	constructor(apiKey?: string, projectId?: string, backendUrl?: string) {
 		this.apiKey = apiKey || process.env.HIKIGAI_API_KEY || "";
 		this.projectId = projectId || process.env.HIKIGAI_PROJECT_ID || "";
-		this.baseUrl =
-			baseUrl ||
-			process.env.HIKIGAI_PLATFORM_URL || "";
+		this.backendUrl =
+			backendUrl ||
+			process.env.HIKIGAI_BACKEND_URL ||
+			HIKIGAI_BACKEND_URL_DEFAULT;
 		this.authToken = null;
 		this.defaultTimeoutMs = HIKIGAI_AGENT_TIMEOUT_MS;
 	}
@@ -23,6 +25,18 @@ export class HikigaiClient {
 		}
 
 		return this.defaultTimeoutMs;
+	}
+
+	private getTimeoutSeconds(timeoutMs?: number): number {
+		const resolvedTimeoutMs = this.getTimeoutMs(timeoutMs);
+		return Math.min(300, Math.max(5, Math.ceil(resolvedTimeoutMs / 1000)));
+	}
+
+	private buildInvokeBody(input: unknown, timeoutMs?: number): string {
+		return JSON.stringify({
+			input,
+			timeout: this.getTimeoutSeconds(timeoutMs),
+		});
 	}
 
 	private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs?: number): Promise<Response> {
@@ -68,7 +82,7 @@ export class HikigaiClient {
 			throw new Error("Missing HIKIGAI_API_KEY");
 		}
 
-		const url = `${this.baseUrl}/api/v1/auth/exchange`;
+		const url = `${this.backendUrl}/api/v1/auth/exchange`;
 		const response = await this.fetchWithTimeout(
 			url,
 			{
@@ -112,7 +126,7 @@ export class HikigaiClient {
 			throw new Error("Missing HIKIGAI_PROJECT_ID");
 		}
 
-		const url = `${this.baseUrl}/api/v1/agents/${agentSlug}/invoke`;
+		const url = `${this.backendUrl}/api/v1/agents/${agentSlug}/invoke`;
 		let token = await this.getAuthToken(false, timeoutMs);
 
 		let response = await this.fetchWithTimeout(
@@ -124,10 +138,7 @@ export class HikigaiClient {
 				Authorization: `Bearer ${token}`,
 				"X-Project-ID": this.projectId,
 			},
-			body: JSON.stringify({
-				input,
-				project_id: this.projectId,
-			}),
+			body: this.buildInvokeBody(input, timeoutMs),
 			},
 			timeoutMs
 		);
@@ -144,10 +155,7 @@ export class HikigaiClient {
 					Authorization: `Bearer ${token}`,
 					"X-Project-ID": this.projectId,
 				},
-				body: JSON.stringify({
-					input,
-					project_id: this.projectId,
-				}),
+				body: this.buildInvokeBody(input, timeoutMs),
 				},
 				timeoutMs
 			);

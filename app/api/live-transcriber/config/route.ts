@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { HIKIGAI_BACKEND_URL_DEFAULT } from "@/lib/hikigai";
 
 const DEFAULT_PROJECT_ID = "a060ee0a-4be3-4fcc-84df-84f0be2a3197";
-const DEFAULT_PLATFORM_URL = "https://d3l2qs3nxy7d0a.cloudfront.net";
+const LIVE_TRANSCRIPTION_AGENT_SLUG = "live-transcription-agent";
 
 export async function GET(request: NextRequest) {
   const apiKey = process.env.HIKIGAI_API_KEY || "";
   const projectIdFromEnv = process.env.HIKIGAI_PROJECT_ID;
   const platformUrlFromEnv = process.env.HIKIGAI_PLATFORM_URL;
+  const backendUrlFromEnv = process.env.HIKIGAI_BACKEND_URL;
   const projectId = projectIdFromEnv || DEFAULT_PROJECT_ID;
-  const baseUrl = platformUrlFromEnv || DEFAULT_PLATFORM_URL;
+  const baseUrl =
+    platformUrlFromEnv || backendUrlFromEnv || HIKIGAI_BACKEND_URL_DEFAULT;
 
   const referer = request.headers.get("referer") || "";
   let refererPath = "";
@@ -26,16 +29,17 @@ export async function GET(request: NextRequest) {
     usingFallbacks: {
       projectId: !projectIdFromEnv,
       platformUrl: !platformUrlFromEnv,
+      backendUrl: !backendUrlFromEnv && !platformUrlFromEnv,
     },
     hasApiKey: Boolean(apiKey),
   };
 
   console.info("[live-transcriber/config] request diagnostics", diagnostics);
 
-  if (!platformUrlFromEnv) {
+  if (!platformUrlFromEnv && !backendUrlFromEnv) {
     console.warn(
-      "[live-transcriber/config] HIKIGAI_PLATFORM_URL missing, using fallback value",
-      { fallback: DEFAULT_PLATFORM_URL }
+      "[live-transcriber/config] HIKIGAI_PLATFORM_URL and HIKIGAI_BACKEND_URL missing, using fallback value",
+      { fallback: HIKIGAI_BACKEND_URL_DEFAULT }
     );
   }
 
@@ -65,7 +69,7 @@ export async function GET(request: NextRequest) {
       baseUrl,
       apiKey,
       projectId,
-      agentName: "live-transcriber",
+      agentName: LIVE_TRANSCRIPTION_AGENT_SLUG,
       diagnostics,
     },
     { status: 200 }
