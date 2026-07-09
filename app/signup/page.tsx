@@ -39,7 +39,6 @@ interface FormData {
   clinicName: string;
   password: string;
   confirmPassword: string;
-  inviteCode: string;
 }
 
 interface FormErrors {
@@ -100,7 +99,6 @@ export default function SignupPage() {
     clinicName: "",
     password: "",
     confirmPassword: "",
-    inviteCode: "",
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -139,9 +137,6 @@ export default function SignupPage() {
     }
     if (form.password !== form.confirmPassword) {
       newErrors.confirmPassword = "Passwords do not match";
-    }
-    if (!form.inviteCode) {
-      newErrors.inviteCode = "Invite code is required";
     }
 
     setErrors(newErrors);
@@ -417,24 +412,6 @@ export default function SignupPage() {
                   </button>
                   {errors.confirmPassword && (
                     <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Invite Code */}
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-medium text-slate-700">Invite Code</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Invite Code"
-                    value={form.inviteCode}
-                    onChange={(e) => updateField("inviteCode", e.target.value)}
-                    className={`pl-10 h-12 rounded-xl border w-full text-sm placeholder:text-slate-400 focus:outline-none focus:border-brand-blue focus:ring-1 focus:ring-brand-blue ${errors.inviteCode ? "border-red-500" : "border-slate-200"}`}
-                  />
-                  {errors.inviteCode && (
-                    <p className="text-red-500 text-xs mt-1">{errors.inviteCode}</p>
                   )}
                 </div>
               </div>

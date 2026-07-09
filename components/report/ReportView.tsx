@@ -18,8 +18,6 @@ import {
   Pill,
   FlaskConical,
   ClipboardCheck,
-  ThumbsUp,
-  ThumbsDown,
 } from "lucide-react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -1206,16 +1204,6 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
           )}
         </div>
       </div>
-
-      <div className="flex justify-end items-center gap-2 text-xs text-slate-500 pt-1">
-        <span>Was this helpful?</span>
-        <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
-          <ThumbsUp className="h-3.5 w-3.5" />
-        </button>
-        <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
-          <ThumbsDown className="h-3.5 w-3.5" />
-        </button>
-      </div>
     </div>
   );
 }
@@ -1277,16 +1265,6 @@ function TranscriptionTab() {
               </div>
             ))
           )}
-        </div>
-
-        <div className="flex justify-end items-center gap-2 text-xs text-slate-500 pt-3">
-          <span>Was this helpful?</span>
-          <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
-            <ThumbsUp className="h-3.5 w-3.5" />
-          </button>
-          <button className="h-6 w-6 rounded-full border border-slate-300 flex items-center justify-center hover:bg-slate-100">
-            <ThumbsDown className="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
     </div>

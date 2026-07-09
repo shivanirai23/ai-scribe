@@ -118,7 +118,7 @@ export default function PricingPage() {
     try {
       const phoneNumber = `${activeFormData.countryCode}${activeFormData.phoneNumber}`;
       const description = [
-        "A user requested a CarePilot call-back from the premium page.",
+        "A user requested a AI_Scribe call-back from the premium page.",
         "",
         `Clinic: ${activeFormData.clinicalName}`,
         `Phone: ${phoneNumber}`,
@@ -129,7 +129,7 @@ export default function PricingPage() {
       helpPayload.append("name", activeFormData.fullName);
       helpPayload.append("email", activeFormData.workEmail);
       helpPayload.append("category", "Premium Upgrade");
-      helpPayload.append("subject", "CarePilot Call Me Request");
+      helpPayload.append("subject", "AI Scribe Call Me Request");
       helpPayload.append("description", description);
 
       const [helpResponse, callResponse] = await Promise.all([
