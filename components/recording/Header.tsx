@@ -22,6 +22,7 @@ import {
   PASSWORD_REQUIREMENTS_MSG,
   verifyResetCode,
 } from "@/lib/auth/reset-password";
+import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
 
 function InfoTooltip({ text }: { text: string }) {
   return (
@@ -204,19 +205,23 @@ export function UserProfileSidebar() {
   const handleChangePassword = async () => {
     setPwSuccess("");
     setPwError("");
-    if (!oldPassword || !newPassword || !confirmPassword) {
+    const trimmedOldPassword = trimAuthInput(oldPassword);
+    const trimmedNewPassword = trimAuthInput(newPassword);
+    const trimmedConfirmPassword = trimAuthInput(confirmPassword);
+
+    if (!trimmedOldPassword || !trimmedNewPassword || !trimmedConfirmPassword) {
       setPwError("All fields are required");
       return;
     }
-    if (oldPassword === newPassword) {
+    if (trimmedOldPassword === trimmedNewPassword) {
       setPwError("New password must be different from the current password");
       return;
     }
-    if (!isValidPasswordCheck(newPassword)) {
+    if (!isValidPasswordCheck(trimmedNewPassword)) {
       setPwError(PASSWORD_REQUIREMENTS_MSG);
       return;
     }
-    if (newPassword !== confirmPassword) {
+    if (trimmedNewPassword !== trimmedConfirmPassword) {
       setPwError("Passwords do not match");
       return;
     }
@@ -225,8 +230,8 @@ export function UserProfileSidebar() {
       setIsChangingPassword(true);
       const { updatePassword } = await import("aws-amplify/auth");
       await updatePassword({
-        oldPassword,
-        newPassword,
+        oldPassword: trimmedOldPassword,
+        newPassword: trimmedNewPassword,
       });
       setPwSuccess("Password updated successfully");
       setTimeout(() => {
@@ -234,7 +239,7 @@ export function UserProfileSidebar() {
         resetPasswordDialog();
       }, 800);
     } catch (e) {
-      setPwError(e instanceof Error ? e.message : "Failed to change password");
+      setPwError(formatAuthError(e, "Failed to change password"));
     } finally {
       setIsChangingPassword(false);
     }
@@ -261,7 +266,7 @@ export function UserProfileSidebar() {
         setPwSuccess("Password reset request submitted.");
       }
     } catch (e) {
-      setPwError(e instanceof Error ? e.message : "Failed to start password reset");
+      setPwError(formatAuthError(e, "Failed to start password reset"));
     } finally {
       setIsResettingPassword(false);
     }
@@ -276,14 +281,16 @@ export function UserProfileSidebar() {
       return;
     }
 
-    if (!resetCode.trim()) {
+    const trimmedResetCode = trimAuthInput(resetCode);
+
+    if (!trimmedResetCode) {
       setPwError("Please enter the reset code.");
       return;
     }
 
     try {
       setIsResettingPassword(true);
-      const result = await verifyResetCode(user.email, resetCode.trim());
+      const result = await verifyResetCode(user.email, trimmedResetCode);
       if (!result.valid) {
         setPwError(result.error);
         return;
@@ -305,17 +312,21 @@ export function UserProfileSidebar() {
       return;
     }
 
-    if (!resetNewPassword || !resetConfirmPassword) {
+    const trimmedResetCode = trimAuthInput(resetCode);
+    const trimmedResetNewPassword = trimAuthInput(resetNewPassword);
+    const trimmedResetConfirmPassword = trimAuthInput(resetConfirmPassword);
+
+    if (!trimmedResetNewPassword || !trimmedResetConfirmPassword) {
       setPwError("All password fields are required");
       return;
     }
 
-    if (!isValidPasswordCheck(resetNewPassword)) {
+    if (!isValidPasswordCheck(trimmedResetNewPassword)) {
       setPwError(PASSWORD_REQUIREMENTS_MSG);
       return;
     }
 
-    if (resetNewPassword !== resetConfirmPassword) {
+    if (trimmedResetNewPassword !== trimmedResetConfirmPassword) {
       setPwError("Passwords do not match");
       return;
     }
@@ -325,8 +336,8 @@ export function UserProfileSidebar() {
       const { confirmResetPassword } = await import("aws-amplify/auth");
       await confirmResetPassword({
         username: user.email,
-        confirmationCode: resetCode.trim(),
-        newPassword: resetNewPassword,
+        confirmationCode: trimmedResetCode,
+        newPassword: trimmedResetNewPassword,
       });
 
       setPwSuccess("Password reset successfully. Use the new password the next time you sign in.");
@@ -340,7 +351,7 @@ export function UserProfileSidebar() {
         setPwError("Your reset code is no longer valid. Please enter the code again.");
         return;
       }
-      setPwError(e instanceof Error ? e.message : "Failed to reset password");
+      setPwError(formatAuthError(e, "Failed to reset password"));
     } finally {
       setIsResettingPassword(false);
     }

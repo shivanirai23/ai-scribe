@@ -1,10 +1,15 @@
 import { confirmResetPassword } from "aws-amplify/auth";
+import { formatAuthError } from "@/lib/auth/errors";
 
 export const PASSWORD_REQUIREMENTS_MSG =
   "Password must be 8+ chars with lowercase, uppercase, number, and special character.";
 
-/** Probe password — never stored; used only to validate a reset code with Cognito. */
-const RESET_CODE_PROBE_PASSWORD = "!";
+/**
+ * Probe password — never stored; used only to validate a reset code with Cognito.
+ * Must be at least 2 non-whitespace characters to satisfy Cognito's
+ * `^[\S]+.*[\S]+$` constraint, but still fail the real password policy.
+ */
+const RESET_CODE_PROBE_PASSWORD = "!!";
 
 export function isValidPassword(password: string): boolean {
   return (
@@ -62,7 +67,10 @@ export async function verifyResetCode(
     if (
       name === "InvalidPasswordException" ||
       message.includes("Password did not conform") ||
-      message.includes("Invalid password")
+      message.includes("Invalid password") ||
+      (name === "InvalidParameterException" &&
+        message.toLowerCase().includes("password") &&
+        message.toLowerCase().includes("regular expression pattern"))
     ) {
       return { valid: true };
     }
@@ -73,7 +81,7 @@ export async function verifyResetCode(
 
     return {
       valid: false,
-      error: message || "Could not verify reset code. Please try again.",
+      error: formatAuthError(error, "Could not verify reset code. Please try again."),
     };
   }
 }

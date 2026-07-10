@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
 import { confirmSignUp, fetchAuthSession, resendSignUpCode } from "aws-amplify/auth";
 import Image from "next/image";
 import { AlertCircle, Mail } from "lucide-react";
@@ -46,12 +47,19 @@ export default function VerifySignupPage() {
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    const trimmedCode = trimAuthInput(code);
+    if (!trimmedCode) {
+      setError("Please enter the verification code.");
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await confirmSignUp({ username: email, confirmationCode: code });
+      await confirmSignUp({ username: email, confirmationCode: trimmedCode });
       router.push(`/login?email=${encodeURIComponent(email)}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Verification failed. Try again.");
+      setError(formatAuthError(err, "Verification failed. Please try again."));
     } finally {
       setIsLoading(false);
     }

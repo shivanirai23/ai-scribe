@@ -18,6 +18,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { configureCognitoAuth } from "@/lib/auth/cognito";
 import { DEFAULT_SUBSCRIPTION_MINUTES, MINUTES_LEFT_ATTRIBUTE } from "@/lib/auth/minutes";
+import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
 import { SPECIALTIES } from "@/lib/specialties";
 import { fetchAuthSession, signUp } from "aws-amplify/auth";
 
@@ -103,39 +104,41 @@ export default function SignupPage() {
 
   const [errors, setErrors] = useState<FormErrors>({});
 
-  const validate = (): boolean => {
+  const validate = (data: FormData): boolean => {
     const newErrors: FormErrors = {};
+    const password = trimAuthInput(data.password);
+    const confirmPassword = trimAuthInput(data.confirmPassword);
 
-    if (!form.firstName || form.firstName.length < 2 || !/^[a-zA-Z\s]+$/.test(form.firstName)) {
+    if (!data.firstName || data.firstName.length < 2 || !/^[a-zA-Z\s]+$/.test(data.firstName)) {
       newErrors.firstName = "First name must be at least 2 letters";
     }
-    if (!form.lastName || form.lastName.length < 2 || !/^[a-zA-Z\s]+$/.test(form.lastName)) {
+    if (!data.lastName || data.lastName.length < 2 || !/^[a-zA-Z\s]+$/.test(data.lastName)) {
       newErrors.lastName = "Last name must be at least 2 letters";
     }
-    if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
       newErrors.email = "Valid email is required";
     }
-    if (!form.phone || !/^\d+$/.test(form.phone)) {
+    if (!data.phone || !/^\d+$/.test(data.phone)) {
       newErrors.phone = "Valid phone number is required";
     }
-    if (!form.specialty) {
+    if (!data.specialty) {
       newErrors.specialty = "Please select a specialty";
     }
-    if (!form.clinicName || form.clinicName.length < 2) {
+    if (!data.clinicName || data.clinicName.length < 2) {
       newErrors.clinicName = "Clinic name must be at least 2 characters";
     }
     if (
-      !form.password ||
-      form.password.length < 8 ||
-      !/[a-z]/.test(form.password) ||
-      !/[A-Z]/.test(form.password) ||
-      !/[0-9]/.test(form.password) ||
-      !/[^a-zA-Z0-9]/.test(form.password)
+      !password ||
+      password.length < 8 ||
+      !/[a-z]/.test(password) ||
+      !/[A-Z]/.test(password) ||
+      !/[0-9]/.test(password) ||
+      !/[^a-zA-Z0-9]/.test(password)
     ) {
       newErrors.password =
         "Password must be 8+ chars with lowercase, uppercase, number, and special character";
     }
-    if (form.password !== form.confirmPassword) {
+    if (password !== confirmPassword) {
       newErrors.confirmPassword = "Passwords do not match";
     }
 
@@ -146,24 +149,31 @@ export default function SignupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setServerError("");
-    if (!validate()) return;
+    const trimmedForm = {
+      ...form,
+      email: trimAuthInput(form.email),
+      password: trimAuthInput(form.password),
+      confirmPassword: trimAuthInput(form.confirmPassword),
+    };
+
+    if (!validate(trimmedForm)) return;
 
     setIsLoading(true);
 
     try {
-      const phoneNumber = form.phone ? `${form.countryCode}${form.phone}` : undefined;
+      const phoneNumber = trimmedForm.phone ? `${trimmedForm.countryCode}${trimmedForm.phone}` : undefined;
       const result = await signUp({
-        username: form.email,
-        password: form.password,
+        username: trimmedForm.email,
+        password: trimmedForm.password,
         options: {
           userAttributes: {
-            email: form.email,
-            given_name: form.firstName,
-            family_name: form.lastName,
-            name: `${form.firstName} ${form.lastName}`.trim(),
+            email: trimmedForm.email,
+            given_name: trimmedForm.firstName,
+            family_name: trimmedForm.lastName,
+            name: `${trimmedForm.firstName} ${trimmedForm.lastName}`.trim(),
             ...(phoneNumber ? { phone_number: phoneNumber } : {}),
-            "custom:specialty": form.specialty,
-            "custom:clinic_name": form.clinicName,
+            "custom:specialty": trimmedForm.specialty,
+            "custom:clinic_name": trimmedForm.clinicName,
             [MINUTES_LEFT_ATTRIBUTE]: String(DEFAULT_SUBSCRIPTION_MINUTES),
           },
         },
@@ -171,12 +181,12 @@ export default function SignupPage() {
 
       if (result.nextStep.signUpStep === "CONFIRM_SIGN_UP") {
         // Redirect to verify page with email
-        router.push(`/signup/verify?email=${encodeURIComponent(form.email)}`);
+        router.push(`/signup/verify?email=${encodeURIComponent(trimmedForm.email)}`);
         return;
       }
-      router.push(`/login?email=${encodeURIComponent(form.email)}`);
+      router.push(`/login?email=${encodeURIComponent(trimmedForm.email)}`);
     } catch (error) {
-      setServerError(error instanceof Error ? error.message : "Sign up failed. Please try again.");
+      setServerError(formatAuthError(error, "Sign up failed. Please try again."));
     } finally {
       setIsLoading(false);
     }

@@ -31,6 +31,7 @@ import type { AlertType } from "@/components/recording/AlertBanners";
 import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
 import type { ReportData } from "@/store/slices/recordingSlice";
 import { apiFetch, cleanDateValue, mapFollowUpAppointment } from "@/lib/utils";
+import { normalizeMedicationFrequency } from "@/lib/medication";
 import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 
 interface AlertItem {
@@ -445,12 +446,7 @@ export default function RecordingPage() {
           };
 
           const rawFreq = med.frequency;
-          const frequency =
-            rawFreq && typeof rawFreq === "object"
-              ? (rawFreq as { morning?: unknown; afternoon?: unknown; night?: unknown })
-              : typeof rawFreq === "string"
-                ? (() => { try { return JSON.parse(rawFreq) as { morning?: unknown; afternoon?: unknown; night?: unknown }; } catch { return {}; } })()
-                : {};
+          const frequency = normalizeMedicationFrequency(rawFreq);
 
           const medicineName =
             typeof med.correct_medicine_name === "string"
@@ -469,11 +465,7 @@ export default function RecordingPage() {
             correct_medicine_name: medicineName,
             dosage: typeof med.dosage === "string" ? med.dosage : "",
             unit: typeof med.unit === "string" ? med.unit : "",
-            frequency: {
-              morning: frequency.morning != null ? String(frequency.morning) : null,
-              afternoon: frequency.afternoon != null ? String(frequency.afternoon) : null,
-              night: frequency.night != null ? String(frequency.night) : null,
-            },
+            frequency,
             start_date: typeof med.start_date === "string" && med.start_date ? med.start_date : today,
             days: typeof med.days === "string" ? med.days : "",
             instruction: typeof med.instruction === "string" ? med.instruction : "",

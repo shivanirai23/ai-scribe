@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { HIKIGAI_AGENT_TIMEOUT_MS, hikigai } from "@/lib/hikigai";
+import { normalizeMedicationFrequency } from "@/lib/medication";
 
 export const maxDuration = 300;
 
@@ -19,27 +20,6 @@ type MedicationItem = {
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function normalizeFrequency(rawFreq: unknown): MedicationItem["frequency"] {
-  if (rawFreq && typeof rawFreq === "object") {
-    const freq = rawFreq as { morning?: unknown; afternoon?: unknown; night?: unknown };
-    return {
-      morning: freq.morning != null ? String(freq.morning) : null,
-      afternoon: freq.afternoon != null ? String(freq.afternoon) : null,
-      night: freq.night != null ? String(freq.night) : null,
-    };
-  }
-
-  if (typeof rawFreq === "string") {
-    try {
-      return normalizeFrequency(JSON.parse(rawFreq));
-    } catch {
-      return { morning: null, afternoon: null, night: null };
-    }
-  }
-
-  return { morning: null, afternoon: null, night: null };
 }
 
 function normalizeMedicationItem(entry: unknown): MedicationItem | null {
@@ -78,7 +58,7 @@ function normalizeMedicationItem(entry: unknown): MedicationItem | null {
     correct_medicine_name: medicineName,
     dosage: str(item.dosage) ?? str(item.dose) ?? "",
     unit: str(item.unit) ?? "",
-    frequency: normalizeFrequency(item.frequency),
+    frequency: normalizeMedicationFrequency(item.frequency),
     start_date: str(item.start_date) ?? str(item.startDate) ?? "",
     days: str(item.days) ?? "",
     instruction: str(item.instruction) ?? str(item.instructions) ?? "",

@@ -28,6 +28,7 @@ import {
   PASSWORD_REQUIREMENTS_MSG,
   verifyResetCode,
 } from "@/lib/auth/reset-password";
+import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -95,7 +96,10 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
 
-    if (!email || !password) {
+    const trimmedEmail = trimAuthInput(email);
+    const trimmedPassword = trimAuthInput(password);
+
+    if (!trimmedEmail || !trimmedPassword) {
       setError("Please fill in all fields.");
       return;
     }
@@ -103,8 +107,8 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       const result = await signIn({
-        username: email,
-        password,
+        username: trimmedEmail,
+        password: trimmedPassword,
       });
 
       if (result.nextStep.signInStep === "CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED") {
@@ -126,7 +130,7 @@ export default function LoginPage() {
         setUser({
           firstName,
           lastName,
-          email: attributes.email ?? email,
+          email: attributes.email ?? trimmedEmail,
           phone: attributes.phone_number ?? "",
           speciality: attributes["custom:specialty"] ?? "",
           clinicName: attributes["custom:clinic_name"] ?? "",
@@ -137,7 +141,7 @@ export default function LoginPage() {
       dispatch(setLoggedIn(true));
       router.push("/recording");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Sign in failed. Please try again.");
+      setError(formatAuthError(error, "Sign in failed. Please try again."));
     } finally {
       setIsLoading(false);
     }
@@ -147,14 +151,16 @@ export default function LoginPage() {
     e.preventDefault();
     setForgotMsg(null);
 
-    if (!forgotEmail) {
+    const trimmedForgotEmail = trimAuthInput(forgotEmail);
+
+    if (!trimmedForgotEmail) {
       setForgotMsg({ type: "error", text: "Please enter your email address." });
       return;
     }
 
     setForgotLoading(true);
     try {
-      const result = await resetPassword({ username: forgotEmail });
+      const result = await resetPassword({ username: trimmedForgotEmail });
 
       if (result.nextStep.resetPasswordStep === "CONFIRM_RESET_PASSWORD_WITH_CODE") {
         setForgotStep("verify-code");
@@ -166,7 +172,7 @@ export default function LoginPage() {
     } catch (error) {
       setForgotMsg({
         type: "error",
-        text: error instanceof Error ? error.message : "Password reset failed. Please try again.",
+        text: formatAuthError(error, "Password reset failed. Please try again."),
       });
     } finally {
       setForgotLoading(false);
@@ -177,14 +183,16 @@ export default function LoginPage() {
     e.preventDefault();
     setForgotMsg(null);
 
-    if (!resetCode.trim()) {
+    const trimmedResetCode = trimAuthInput(resetCode);
+
+    if (!trimmedResetCode) {
       setForgotMsg({ type: "error", text: "Please enter the reset code." });
       return;
     }
 
     setForgotLoading(true);
     try {
-      const result = await verifyResetCode(forgotEmail, resetCode.trim());
+      const result = await verifyResetCode(trimAuthInput(forgotEmail), trimmedResetCode);
       if (!result.valid) {
         setForgotMsg({ type: "error", text: result.error });
         return;
@@ -204,12 +212,16 @@ export default function LoginPage() {
     e.preventDefault();
     setForgotMsg(null);
 
-    if (!resetNewPassword || !resetConfirmPassword) {
+    const trimmedResetCode = trimAuthInput(resetCode);
+    const trimmedNewPassword = trimAuthInput(resetNewPassword);
+    const trimmedConfirmPassword = trimAuthInput(resetConfirmPassword);
+
+    if (!trimmedNewPassword || !trimmedConfirmPassword) {
       setForgotMsg({ type: "error", text: "All password fields are required." });
       return;
     }
 
-    if (!isValidPasswordCheck(resetNewPassword)) {
+    if (!isValidPasswordCheck(trimmedNewPassword)) {
       setForgotMsg({
         type: "error",
         text: PASSWORD_REQUIREMENTS_MSG,
@@ -217,7 +229,7 @@ export default function LoginPage() {
       return;
     }
 
-    if (resetNewPassword !== resetConfirmPassword) {
+    if (trimmedNewPassword !== trimmedConfirmPassword) {
       setForgotMsg({ type: "error", text: "Passwords do not match." });
       return;
     }
@@ -225,9 +237,9 @@ export default function LoginPage() {
     setForgotLoading(true);
     try {
       await confirmResetPassword({
-        username: forgotEmail,
-        confirmationCode: resetCode.trim(),
-        newPassword: resetNewPassword,
+        username: trimAuthInput(forgotEmail),
+        confirmationCode: trimmedResetCode,
+        newPassword: trimmedNewPassword,
       });
 
       setForgotMsg({ type: "success", text: "Your password has been updated. You can sign in now." });
@@ -246,7 +258,7 @@ export default function LoginPage() {
       }
       setForgotMsg({
         type: "error",
-        text: error instanceof Error ? error.message : "Password reset failed. Please try again.",
+        text: formatAuthError(error, "Password reset failed. Please try again."),
       });
     } finally {
       setForgotLoading(false);
