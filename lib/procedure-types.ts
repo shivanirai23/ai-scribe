@@ -29,7 +29,11 @@ export function getProcedureTypeBadge(procedureType: string | undefined | null):
 }
 
 export function getProcedureTypeBadgeClass(badge: string): string {
-  if (badge === "Vaccine" || badge === "Radiology Orders") {
+  if (badge === "Vaccine") {
+    return "bg-violet-100 text-violet-700";
+  }
+
+  if (badge === "Radiology Orders") {
     return "bg-sky-100 text-sky-700";
   }
 

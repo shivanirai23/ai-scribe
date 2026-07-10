@@ -17,11 +17,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "message is required" }, { status: 400 });
     }
 
-    const agentResponse = await hikigai.invokeAgent("referral-agent", { message }, HIKIGAI_AGENT_TIMEOUT_MS);
-    console.log("[referral-agent] raw invoke output:", JSON.stringify(agentResponse));
+    const agentResponse = await hikigai.invokeAgent("referal-agent", { message }, HIKIGAI_AGENT_TIMEOUT_MS);
+    console.log("[referal-agent] raw invoke output:", JSON.stringify(agentResponse));
 
     const referrals = normalizeReferrals(agentResponse);
-    console.log("[referral-agent] normalized output:", JSON.stringify({ referrals }));
+    console.log("[referal-agent] normalized output:", JSON.stringify({ referrals }));
     return NextResponse.json({ referrals }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to generate referrals";
