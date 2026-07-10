@@ -527,8 +527,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
-  const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | "referrals" | null>(null);
-  const [retryingVaccines, setRetryingVaccines] = useState(false);
+  const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | "vaccines" | "referrals" | null>(null);
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
 
   if (reportLoading) {
@@ -635,6 +634,9 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       detail: item.dose !== "N/A" ? item.dose : undefined,
     })),
   ];
+
+  const hasNoProcedures = procedures.length === 0;
+  const hasNoVaccines = vaccines.length === 0;
 
   const referrals = (reportData.referrals as Array<Record<string, unknown>>)
     .map((item) => {
@@ -920,9 +922,96 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
     }
   };
 
+  const retryProceduresAndVaccines = async () => {
+    if (!transcriptMessage) return;
+    setRetryingSection("procedures");
+    setRetryErrors((prev) => ({ ...prev, procedures: "", vaccines: "" }));
+
+    try {
+      const [procedureResponse, vaccineResponse] = await Promise.all([
+        apiFetch("/api/procedures", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: transcriptMessage }),
+        }),
+        apiFetch("/api/vaccines", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: transcriptMessage }),
+        }),
+      ]);
+
+      const procedureData = (await procedureResponse.json()) as {
+        procedure?: unknown[];
+        procedures?: unknown[];
+        error?: string;
+      };
+      const vaccineData = (await vaccineResponse.json()) as {
+        vaccine?: unknown[];
+        error?: string;
+      };
+
+      const procedureError = getApiError(procedureResponse, procedureData, "Procedures retry failed");
+      const vaccineError = getApiError(vaccineResponse, vaccineData, "Vaccines retry failed");
+
+      if (procedureError && vaccineError) {
+        setRetryErrors((prev) => ({
+          ...prev,
+          procedures: toUserFacingApiError(
+            new Error(procedureError),
+            "Procedures retry failed. Please try again."
+          ),
+          vaccines: toUserFacingApiError(
+            new Error(vaccineError),
+            "Vaccines retry failed. Please try again."
+          ),
+        }));
+        return;
+      }
+
+      dispatch(
+        setReportData({
+          ...reportData,
+          ...(!procedureError
+            ? { procedure: { procedure: procedureData.procedure || procedureData.procedures || [] } }
+            : {}),
+          ...(!vaccineError ? { vaccine: { vaccine: vaccineData.vaccine || [] } } : {}),
+        })
+      );
+
+      setRetryErrors((prev) => ({
+        ...prev,
+        ...(procedureError
+          ? {
+              procedures: toUserFacingApiError(
+                new Error(procedureError),
+                "Procedures retry failed. Please try again."
+              ),
+            }
+          : {}),
+        ...(vaccineError
+          ? {
+              vaccines: toUserFacingApiError(
+                new Error(vaccineError),
+                "Vaccines retry failed. Please try again."
+              ),
+            }
+          : {}),
+      }));
+    } catch (error) {
+      setRetryErrors((prev) => ({
+        ...prev,
+        procedures: toUserFacingApiError(error, "Procedures retry failed. Please try again."),
+        vaccines: toUserFacingApiError(error, "Vaccines retry failed. Please try again."),
+      }));
+    } finally {
+      setRetryingSection(null);
+    }
+  };
+
   const retryVaccines = async () => {
     if (!transcriptMessage) return;
-    setRetryingVaccines(true);
+    setRetryingSection("vaccines");
     setRetryErrors((prev) => ({ ...prev, vaccines: "" }));
     try {
       const response = await apiFetch("/api/vaccines", {
@@ -951,7 +1040,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         vaccines: toUserFacingApiError(error, "Vaccines retry failed. Please try again."),
       }));
     } finally {
-      setRetryingVaccines(false);
+      setRetryingSection(null);
     }
   };
 
@@ -1075,11 +1164,17 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
               Procedures
             </h3>
             <div className="flex items-center gap-2">
-              {procedures.length === 0 && (
+              {hasNoProcedures && hasNoVaccines && (
+                <RetryButton
+                  onClick={retryProceduresAndVaccines}
+                  isLoading={retryingSection === "procedures"}
+                />
+              )}
+              {hasNoProcedures && !hasNoVaccines && (
                 <RetryButton onClick={retryProcedures} isLoading={retryingSection === "procedures"} />
               )}
-              {vaccines.length === 0 && (
-                <RetryButton onClick={retryVaccines} isLoading={retryingVaccines} />
+              {hasNoVaccines && !hasNoProcedures && (
+                <RetryButton onClick={retryVaccines} isLoading={retryingSection === "vaccines"} />
               )}
             </div>
           </div>
