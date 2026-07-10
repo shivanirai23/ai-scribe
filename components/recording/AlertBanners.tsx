@@ -20,8 +20,9 @@ const ALERT_CONFIG: Record<
     iconColor: "text-red-600",
     textColor: "text-red-700",
     icon: <WifiOff className="h-5 w-5" />,
-    title: "No Connection",
-    message: "Connection lost. Trying to reconnect…",
+    title: "Network Issue",
+    message:
+      "Network connection lost. Please check your internet connection. Reconnecting automatically when your connection is restored.",
   },
   "socket-disconnected": {
     bg: "bg-yellow-50",
@@ -29,8 +30,9 @@ const ALERT_CONFIG: Record<
     iconColor: "text-yellow-600",
     textColor: "text-yellow-700",
     icon: <Unplug className="h-5 w-5" />,
-    title: "Disconnected",
-    message: "Connection lost. Trying to reconnect…",
+    title: "Connection Interrupted",
+    message:
+      "Network connection lost. Please check your internet connection. Trying to reconnect…",
   },
   "network-slow": {
     bg: "bg-orange-50",

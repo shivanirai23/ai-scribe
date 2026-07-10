@@ -23,7 +23,8 @@ import {
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { apiFetch, cleanDateValue, mapFollowUpAppointment, withoutBasePath } from "@/lib/utils";
 import { formatMedicationFrequency, normalizeMedicationFrequency } from "@/lib/medication";
-import { getProcedureTypeBadge } from "@/lib/procedure-types";
+import { getProcedureTypeBadge, getProcedureTypeBadgeClass } from "@/lib/procedure-types";
+import { formatReferralUrgency } from "@/lib/referrals";
 import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
 import { exportVisitReportPdf } from "@/lib/report-pdf";
 import { toUserFacingApiError } from "@/lib/api-errors";
@@ -637,32 +638,44 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
 
   const referrals = (reportData.referrals as Array<Record<string, unknown>>)
     .map((item) => {
-      const specialist =
-        typeof item.specialist === "string"
-          ? item.specialist
-          : typeof item.name === "string"
-            ? item.name
-            : "";
-      if (!specialist.trim()) return null;
+      const specialty =
+        typeof item.specialty === "string"
+          ? item.specialty
+          : typeof item.specialist === "string"
+            ? item.specialist
+            : typeof item.name === "string"
+              ? item.name
+              : "";
+      if (!specialty.trim()) return null;
       return {
-        specialist,
+        specialty,
+        referred_to: typeof item.referred_to === "string" ? item.referred_to : "",
         reason:
           typeof item.reason === "string"
             ? item.reason
             : typeof item.clinical_context === "string"
               ? item.clinical_context
               : "",
-        notes:
-          typeof item.notes === "string"
-            ? item.notes
-            : "",
-        badge:
-          typeof item.type === "string" && item.type.trim()
-            ? item.type
-            : "routine",
+        notes: typeof item.notes === "string" ? item.notes : "",
+        urgency:
+          typeof item.urgency === "string" && item.urgency.trim()
+            ? item.urgency
+            : typeof item.type === "string" && item.type.trim()
+              ? item.type
+              : "routine",
       };
     })
-    .filter((item): item is { specialist: string; reason: string; notes: string; badge: string } => item !== null);
+    .filter(
+      (
+        item
+      ): item is {
+        specialty: string;
+        referred_to: string;
+        reason: string;
+        notes: string;
+        urgency: string;
+      } => item !== null
+    );
 
   const followupCard = (() => {
     if (!followup) {
@@ -1082,11 +1095,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-bold text-slate-900">{item.name}</p>
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        item.badge === "Vaccine"
-                          ? "bg-sky-100 text-sky-700"
-                          : "bg-orange-100 text-orange-600"
-                      }`}
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${getProcedureTypeBadgeClass(item.badge)}`}
                     >
                       {item.badge}
                     </span>
@@ -1126,10 +1135,17 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
             <div className="space-y-2">
               {referrals.map((referral, i) => (
                 <div key={i} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-slate-900">{referral.specialist}</p>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">{referral.badge}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-slate-900">{referral.specialty}</p>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium shrink-0">
+                      {formatReferralUrgency(referral.urgency)}
+                    </span>
                   </div>
+                  {referral.referred_to && (
+                    <p className="text-sm text-slate-800 mt-1">
+                      <span className="font-semibold text-slate-600">Referred To:</span> {referral.referred_to}
+                    </p>
+                  )}
                   <p className="text-sm text-slate-800 mt-1"><span className="font-semibold text-slate-600">Reason:</span> {referral.reason || "N/A"}</p>
                   <p className="text-sm text-slate-800"><span className="font-semibold text-slate-600">Notes:</span> {referral.notes || "N/A"}</p>
                 </div>

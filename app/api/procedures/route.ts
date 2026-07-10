@@ -142,7 +142,7 @@ function collectProcedureEntries(payload: unknown): ProcedureEntry[] {
         } else if (key === "in_office_procedures") {
           entry.procedure_type = "in_office";
         } else if (key === "imaging_radiology_orders") {
-          entry.procedure_type = "imaging";
+          entry.procedure_type = "imaging_radiology_order";
         }
 
         normalized.push(entry);

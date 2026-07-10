@@ -2,6 +2,7 @@ import type { ReportData } from "@/store/slices/recordingSlice";
 import { cleanDateValue } from "@/lib/utils";
 import { formatMedicationFrequency } from "@/lib/medication";
 import { getProcedureTypeBadge } from "@/lib/procedure-types";
+import { formatReferralUrgency } from "@/lib/referrals";
 
 export interface ExportVisitReportPdfOptions {
   reportData: ReportData;
@@ -313,6 +314,22 @@ export async function exportVisitReportPdf({
   // Procedures (includes vaccines)
   addSubTitle("Procedure Information");
   const procedureItems = [
+    ...(reportData.vaccine.vaccine as Array<Record<string, unknown>>).map((item) => ({
+      name:
+        typeof item.name === "string"
+          ? item.name
+          : typeof item.vaccine_name === "string"
+            ? item.vaccine_name
+            : "",
+      typeLabel: "Vaccine",
+      note:
+        typeof item.dose === "string"
+          ? item.dose
+          : typeof item.dose_number === "string"
+            ? item.dose_number
+            : "",
+      date: cleanDateValue(item.date) || "N/A",
+    })),
     ...(reportData.procedure.procedure as Array<Record<string, unknown>>).map((item) => {
       const name =
         typeof item.name === "string"
@@ -331,42 +348,22 @@ export async function exportVisitReportPdf({
           (typeof item.reason === "string" && item.reason.trim()) ||
           (typeof item.clinical_context === "string" && item.clinical_context.trim()) ||
           "",
-        date: cleanDateValue(item.date),
+        date: cleanDateValue(item.date) || "N/A",
       };
     }),
-    ...(reportData.vaccine.vaccine as Array<Record<string, unknown>>).map((item) => ({
-      name:
-        typeof item.name === "string"
-          ? item.name
-          : typeof item.vaccine_name === "string"
-            ? item.vaccine_name
-            : "",
-      typeLabel: "Vaccine",
-      note:
-        typeof item.dose === "string"
-          ? item.dose
-          : typeof item.dose_number === "string"
-            ? item.dose_number
-            : "N/A",
-      date: typeof item.date === "string" ? item.date : "N/A",
-    })),
   ].filter((item) => item.name.trim());
 
   if (procedureItems.length === 0) {
     addParagraph(null, 5);
   } else {
     procedureItems.forEach((item, index) => {
-      checkY(15);
+      checkY(24);
       doc.setFont("helvetica", "bold");
       doc.text(`${index + 1}. ${item.name} (${item.typeLabel})`, margin, y);
       y += 6;
       doc.setFont("helvetica", "normal");
-      if (item.note) {
-        addParagraph(`Notes: ${item.note}`, 5);
-      }
-      if (item.date) {
-        addParagraph(`Date: ${item.date}`, 5);
-      }
+      addParagraph(`Note: ${item.note?.trim() || "N/A"}`, 5);
+      addParagraph(`Date: ${item.date?.trim() || "N/A"}`, 5);
       y += 3;
     });
   }
@@ -395,15 +392,15 @@ export async function exportVisitReportPdf({
   // Referrals
   addSubTitle("Referrals");
   const referrals = (reportData.referrals as Array<Record<string, unknown>>).filter((item) => {
-    const specialist =
-      typeof item.specialist === "string"
-        ? item.specialist
-        : typeof item.specialty === "string"
-          ? item.specialty
+    const specialty =
+      typeof item.specialty === "string"
+        ? item.specialty
+        : typeof item.specialist === "string"
+          ? item.specialist
           : typeof item.name === "string"
             ? item.name
             : "";
-    return specialist.trim().length > 0;
+    return specialty.trim().length > 0;
   });
 
   if (referrals.length === 0) {
@@ -411,10 +408,10 @@ export async function exportVisitReportPdf({
   } else {
     referrals.forEach((referral, index) => {
       const specialty =
-        typeof referral.specialist === "string"
-          ? referral.specialist
-          : typeof referral.specialty === "string"
-            ? referral.specialty
+        typeof referral.specialty === "string"
+          ? referral.specialty
+          : typeof referral.specialist === "string"
+            ? referral.specialist
             : typeof referral.name === "string"
               ? referral.name
               : "N/A";
@@ -425,7 +422,9 @@ export async function exportVisitReportPdf({
       doc.setFont("helvetica", "normal");
       addParagraph(
         `Referred To: ${
-          typeof referral.referred_to === "string" ? referral.referred_to : "N/A"
+          typeof referral.referred_to === "string" && referral.referred_to.trim()
+            ? referral.referred_to
+            : "N/A"
         }`,
         5
       );
@@ -440,7 +439,13 @@ export async function exportVisitReportPdf({
         5
       );
       addParagraph(
-        `Urgency: ${typeof referral.urgency === "string" ? referral.urgency : "N/A"}`,
+        `Urgency: ${formatReferralUrgency(
+          typeof referral.urgency === "string"
+            ? referral.urgency
+            : typeof referral.type === "string"
+              ? referral.type
+              : "routine"
+        )}`,
         5
       );
       addParagraph(

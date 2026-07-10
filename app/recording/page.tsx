@@ -32,11 +32,31 @@ import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
 import type { ReportData } from "@/store/slices/recordingSlice";
 import { apiFetch, cleanDateValue, mapFollowUpAppointment } from "@/lib/utils";
 import { normalizeMedicationFrequency } from "@/lib/medication";
+import { normalizeReferrals } from "@/lib/referrals";
 import { useLiveTranscription } from "@/hooks/useLiveTranscription";
 
 interface AlertItem {
   type: AlertType;
   id: string;
+}
+
+/** How long to wait without speech before showing the microphone alert. */
+const NO_VOICE_SILENCE_MS = 15_000;
+
+function resolveAlertType(id: string): AlertType {
+  if (id.startsWith("mic-error:") || id === "no-voice-timeout") {
+    return "microphone";
+  }
+
+  if (id === "browser-offline" || (typeof navigator !== "undefined" && !navigator.onLine)) {
+    return "no-network";
+  }
+
+  if (id === "socket-parse-error") {
+    return "network-slow";
+  }
+
+  return "socket-disconnected";
 }
 
 const EMPTY_REPORT: ReportData = {
@@ -145,12 +165,7 @@ export default function RecordingPage() {
     onConnectionState: (state) => dispatch(setConnectionState(state)),
     onSpeechDetected: (detected) => dispatch(setSpeechDetected(detected)),
     onError: (id) => {
-      const alertType: AlertType = id.startsWith("mic-error:")
-        ? "microphone"
-        : id === "socket-parse-error"
-          ? "network-slow"
-          : "socket-disconnected";
-      pushAlert(alertType, id);
+      pushAlert(resolveAlertType(id), id);
     },
     onClearError: (prefix) => {
       setAlerts((prev) => prev.filter((a) => !a.id.startsWith(prefix)));
@@ -165,6 +180,52 @@ export default function RecordingPage() {
     }, 1000);
     return () => clearInterval(interval);
   }, [recording.isRecording, recording.isPaused, dispatch]);
+
+  // Show alert when no voice is detected for an extended period while recording.
+  useEffect(() => {
+    if (!recording.isRecording || recording.isPaused) {
+      setAlerts((prev) => prev.filter((alert) => alert.id !== "no-voice-timeout"));
+      return;
+    }
+
+    if (recording.isSpeechDetected) {
+      setAlerts((prev) => prev.filter((alert) => alert.id !== "no-voice-timeout"));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      pushAlert("microphone", "no-voice-timeout");
+    }, NO_VOICE_SILENCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [recording.isRecording, recording.isPaused, recording.isSpeechDetected]);
+
+  // Show alert when the browser goes offline during a recording session.
+  useEffect(() => {
+    if (!recording.isRecording) {
+      return;
+    }
+
+    const handleOffline = () => {
+      pushAlert("no-network", "browser-offline");
+    };
+
+    const handleOnline = () => {
+      setAlerts((prev) => prev.filter((alert) => alert.id !== "browser-offline"));
+    };
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      pushAlert("no-network", "browser-offline");
+    }
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [recording.isRecording]);
 
   const handleStartVisit = () => {
     const visitId = `visit_${Date.now()}`;
@@ -526,66 +587,7 @@ export default function RecordingPage() {
       })
       .filter((item): item is Record<string, unknown> => item !== null);
 
-    const mappedReferrals = (referralData.referrals || [])
-      .map((item) => {
-        if (typeof item === "string") {
-          return {
-            name: item,
-            reason: "",
-            notes: "",
-            type: "routine",
-          };
-        }
-
-        if (!item || typeof item !== "object") {
-          return null;
-        }
-
-        const referral = item as {
-          specialist?: unknown;
-          specialty?: unknown;
-          provider?: unknown;
-          name?: unknown;
-          reason?: unknown;
-          clinical_context?: unknown;
-          notes?: unknown;
-          type?: unknown;
-          urgency?: unknown;
-        };
-
-        const name =
-          typeof referral.specialist === "string"
-            ? referral.specialist
-            : typeof referral.specialty === "string"
-              ? referral.specialty
-              : typeof referral.provider === "string"
-                ? referral.provider
-                : typeof referral.name === "string"
-                  ? referral.name
-                  : "";
-
-        if (!name.trim()) {
-          return null;
-        }
-
-        return {
-          name,
-          reason:
-            typeof referral.reason === "string"
-              ? referral.reason
-              : typeof referral.clinical_context === "string"
-                ? referral.clinical_context
-                : "",
-          notes: typeof referral.notes === "string" ? referral.notes : "",
-          type:
-            typeof referral.type === "string"
-              ? referral.type
-              : typeof referral.urgency === "string"
-                ? referral.urgency
-                : "routine",
-        };
-      })
-      .filter((item): item is { name: string; reason: string; notes: string; type: string } => item !== null);
+    const mappedReferrals = normalizeReferrals({ referrals: referralData.referrals || [] });
 
     const mappedCptCodes = cptPipelineData.cpt_codes || [];
     const mappedLabTests = (labTestData.lab_test || [])
@@ -733,6 +735,7 @@ export default function RecordingPage() {
   };
 
   const handleStop = async () => {
+    setAlerts([]);
     stopAudioCapture();
     const draft = flushDraft();
     disconnect();
