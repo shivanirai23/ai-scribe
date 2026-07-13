@@ -615,9 +615,6 @@ export function UserProfileSidebar() {
               </>
             ) : (
               <>
-                <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-slate-700">
-                  Code verified. Choose a new password for {user.email}.
-                </div>
                 <div>
                   <label className="text-xs sm:text-sm font-medium text-slate-700 flex items-center gap-2 mb-1">
                     New Password
