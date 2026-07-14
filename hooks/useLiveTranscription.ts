@@ -55,7 +55,6 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
   const sessionIdRef = useRef<string | null>(null);
   const currentTurnRef = useRef("");
   const liveDraftRef = useRef("");
-  const wsInputThisTurnRef = useRef(false);
   const transcriptTextSourceRef = useRef<string | null>(null);
   const audioStartedRef = useRef(false);
   const audioSendingEnabledRef = useRef(false);
@@ -135,32 +134,8 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     }
   }, []);
 
-  /** Merge incremental fragments; prefer longer text when one chunk extends the other. */
-  const mergeTranscriptText = useCallback((prev: string, next: string) => {
-    if (!prev) return next;
-    if (!next) return prev;
-    if (next.startsWith(prev) || prev.startsWith(next)) {
-      return next.length >= prev.length ? next : prev;
-    }
-    const needsSpace = !/\s$/.test(prev) && !/^\s/.test(next);
-    return prev + (needsSpace ? " " : "") + next;
-  }, []);
-
-  const setTranscriptText = useCallback(
-    (text: string, { mode = "replace" as "replace" | "merge" } = {}) => {
-      const prev = currentTurnRef.current || "";
-      const next = String(text || "");
-      const merged = mode === "merge" ? mergeTranscriptText(prev, next) : next;
-
-      currentTurnRef.current = merged;
-      liveDraftRef.current = merged;
-      callbacksRef.current.onLiveDraft(merged);
-    },
-    [mergeTranscriptText]
-  );
-
-  const finishCurrentTurn = useCallback(() => {
-    const finalText = currentTurnRef.current.trim() || liveDraftRef.current.trim();
+  const commitTranscriptLine = useCallback((text: string) => {
+    const finalText = String(text || "").trim();
     currentTurnRef.current = "";
     liveDraftRef.current = "";
     callbacksRef.current.onLiveDraft("");
@@ -169,6 +144,10 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
       callbacksRef.current.onTurnComplete(finalText);
     }
   }, []);
+
+  const finishCurrentTurn = useCallback(() => {
+    commitTranscriptLine(currentTurnRef.current || liveDraftRef.current);
+  }, [commitTranscriptLine]);
 
   const handleWsJsonFrame = useCallback(
     (frame: {
@@ -188,38 +167,28 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
 
       if (type === "start") {
         transcriptTextSourceRef.current = null;
-        // Do not reset wsInputThisTurn — backend sends start when agent replies.
         return;
       }
 
       if (type === "data" && frame.modality === "text") {
+        if (frame.partial === true) {
+          return;
+        }
+
         const text = frame.content;
         const source = frame.source || "";
 
         if (source === "input_transcription") {
           if (text) {
-            wsInputThisTurnRef.current = true;
             transcriptTextSourceRef.current = "input";
-            setTranscriptText(text, { mode: "merge" });
-            if (frame.finished) {
-              finishCurrentTurn();
-            }
+            commitTranscriptLine(text);
           }
           return;
         }
 
         if (text != null && (source === "output" || source === "output_transcription" || !source)) {
-          const isPartial = frame.partial === true;
-          // Streaming output corrections during user speech are noise; final output is authoritative.
-          if (wsInputThisTurnRef.current && isPartial) {
-            return;
-          }
-
           transcriptTextSourceRef.current = source || "output";
-          setTranscriptText(text, { mode: isPartial ? "merge" : "replace" });
-          if (!isPartial && frame.finished) {
-            finishCurrentTurn();
-          }
+          commitTranscriptLine(text);
           return;
         }
         return;
@@ -231,7 +200,6 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
 
       if (type === "end") {
         finishCurrentTurn();
-        wsInputThisTurnRef.current = false;
         transcriptTextSourceRef.current = null;
         return;
       }
@@ -240,7 +208,7 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
         callbacksRef.current.onError(`socket-error:${frame.message || "Agent error"}`);
       }
     },
-    [finishCurrentTurn, setTranscriptText]
+    [commitTranscriptLine, finishCurrentTurn]
   );
 
   const closeSocket = useCallback(() => {
@@ -434,7 +402,6 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     closeSocket();
 
     finishCurrentTurn();
-    wsInputThisTurnRef.current = false;
     transcriptTextSourceRef.current = null;
     callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
   }, [closeSocket, finishCurrentTurn, stopKeepalive, stopReconnectTimer, stopSpeechMonitor]);
@@ -528,7 +495,6 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     sessionIdRef.current = createSessionId();
     currentTurnRef.current = "";
     liveDraftRef.current = "";
-    wsInputThisTurnRef.current = false;
     transcriptTextSourceRef.current = null;
     callbacksRef.current.onLiveDraft("");
 
@@ -555,7 +521,6 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     const draft = (currentTurnRef.current || liveDraftRef.current).trim();
     currentTurnRef.current = "";
     liveDraftRef.current = "";
-    wsInputThisTurnRef.current = false;
     transcriptTextSourceRef.current = null;
     callbacksRef.current.onLiveDraft("");
     return draft;
