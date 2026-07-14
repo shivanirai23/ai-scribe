@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { store } from "@/store/index";
 import {
   addTranscription,
   startVisit,
@@ -255,7 +256,10 @@ export default function RecordingPage() {
     dispatch(resumeRecording());
   };
 
-  const generateReportFromMessage = async (rawMessage: string) => {
+  const generateReportFromMessage = async (
+    rawMessage: string,
+    visitIdAtGeneration: string | null = null
+  ) => {
     const callAgentRoute = async <T,>(url: string) => {
       try {
         const response = await apiFetch(url, {
@@ -684,6 +688,13 @@ export default function RecordingPage() {
       vaccineResult.ok ? null : `Vaccines: ${vaccineResult.error}`,
     ].filter((item): item is string => item !== null);
 
+    if (
+      visitIdAtGeneration != null &&
+      store.getState().recording.visitId !== visitIdAtGeneration
+    ) {
+      return;
+    }
+
     dispatch(
       setReportData({
         ...EMPTY_REPORT,
@@ -735,6 +746,10 @@ export default function RecordingPage() {
   };
 
   const handleStop = async () => {
+    const visitIdAtStop = recording.visitId;
+    const recordingTimeAtStop = recording.recordingTime;
+    const visitMinutesChargedAtStop = recording.visitMinutesCharged;
+
     setAlerts([]);
     stopAudioCapture();
     const draft = flushDraft();
@@ -745,7 +760,7 @@ export default function RecordingPage() {
       setLiveDraft("");
     }
 
-    const transcriptMessage = [...recording.transcription, ...(draft ? [draft] : [])]
+    const transcriptMessage = [...store.getState().recording.transcription]
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
       .join("\n");
@@ -753,8 +768,8 @@ export default function RecordingPage() {
     if (!transcriptMessage) {
       await chargeVisitMinutesIfNeeded(
         dispatch,
-        recording.recordingTime,
-        recording.visitMinutesCharged
+        recordingTimeAtStop,
+        visitMinutesChargedAtStop
       );
       // Fully reset state so Start Visit button reappears
       dispatch(endVisit());
@@ -765,13 +780,14 @@ export default function RecordingPage() {
 
     await chargeVisitMinutesIfNeeded(
       dispatch,
-      recording.recordingTime,
-      recording.visitMinutesCharged
+      recordingTimeAtStop,
+      visitMinutesChargedAtStop
     );
     dispatch(stopRecording());
-
-    await generateReportFromMessage(transcriptMessage);
+    dispatch(setReportLoading(true));
     dispatch(setCurrentView("report"));
+
+    await generateReportFromMessage(transcriptMessage, visitIdAtStop);
   };
 
   const handleStartConversation = async () => {

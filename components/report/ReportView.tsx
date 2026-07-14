@@ -32,6 +32,7 @@ import {
   setCurrentView,
   endVisit,
   setReportData,
+  setReportLoading,
 } from "@/store/slices/recordingSlice";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -1351,6 +1352,7 @@ export function ReportView() {
   const [exportWarning, setExportWarning] = useState("");
 
   const handleBack = () => {
+    dispatch(setReportLoading(false));
     dispatch(setCurrentView("recording"));
     if (isVisitDetailsRoute) {
       router.push("/recording");

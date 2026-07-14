@@ -126,6 +126,7 @@ const recordingSlice = createSlice({
       state.transcription = [];
       state.formattedTranscription = null;
       state.reportData = null;
+      state.reportLoading = false;
       state.recordingTime = 0;
       state.visitMinutesCharged = false;
     },
@@ -145,8 +146,6 @@ const recordingSlice = createSlice({
     stopRecording(state) {
       state.isRecording = false;
       state.isPaused = false;
-      state.currentView = "report";
-      state.reportLoading = true;
     },
     tickTimer(state) {
       state.recordingTime += 1;
