@@ -27,7 +27,7 @@ import { apiFetch, cleanDateValue, mapFollowUpAppointment, withoutBasePath } fro
 import { formatMedicationFrequency, normalizeMedicationFrequency } from "@/lib/medication";
 import { getProcedureTypeBadge, getProcedureTypeBadgeClass } from "@/lib/procedure-types";
 import { formatReferralUrgency } from "@/lib/referrals";
-import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
+import { chargeVisitMinutesIfNeeded, resolveDoctorId } from "@/lib/auth/minutes";
 import { exportVisitReportPdf } from "@/lib/report-pdf";
 import { toUserFacingApiError } from "@/lib/api-errors";
 import {
@@ -686,7 +686,7 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         sessionId={sessionId}
         notes={medicalNotesFeedback.notes}
         response={medicalNotesFeedback.response}
-        doctorId={user.email || "unknown"}
+        doctorId={resolveDoctorId(user.email) || "unknown"}
         doctorName={doctorName}
       />
     </div>
@@ -1454,7 +1454,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         sessionId={sessionId}
         notes={ordersFeedback.notes}
         response={ordersFeedback.response}
-        doctorId={user.email || "unknown"}
+        doctorId={resolveDoctorId(user.email) || "unknown"}
         doctorName={doctorName}
       />
     </div>

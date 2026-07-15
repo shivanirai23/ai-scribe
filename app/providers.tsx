@@ -10,6 +10,7 @@ import {
   DEFAULT_SUBSCRIPTION_MINUTES,
   MINUTES_LEFT_ATTRIBUTE,
   parseMinutesLeft,
+  syncMinutesLeft,
 } from "@/lib/auth/minutes";
 import {
   decodeIdToken,
@@ -62,6 +63,7 @@ function UserSessionSync() {
             })
           );
           dispatch(setLoggedIn(true));
+          void syncMinutesLeft(dispatch);
           return;
         }
       } catch {
@@ -70,6 +72,7 @@ function UserSessionSync() {
 
       if (isLoggedIn) {
         // Keep persisted Redux profile when remote attribute sync is unavailable.
+        void syncMinutesLeft(dispatch);
       }
     }
     void syncUser();

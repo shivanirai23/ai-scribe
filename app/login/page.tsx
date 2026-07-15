@@ -12,6 +12,7 @@ import {
   DEFAULT_SUBSCRIPTION_MINUTES,
   MINUTES_LEFT_ATTRIBUTE,
   parseMinutesLeft,
+  syncMinutesLeft,
 } from "@/lib/auth/minutes";
 import {
   consumePendingSignupProfile,
@@ -194,6 +195,7 @@ export default function LoginPage() {
         })
       );
       dispatch(setLoggedIn(true));
+      void syncMinutesLeft(dispatch);
       router.push("/recording");
     } catch (error) {
       setError(formatAuthError(error, "Sign in failed. Please try again."));

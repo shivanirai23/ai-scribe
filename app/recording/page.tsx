@@ -768,6 +768,7 @@ export default function RecordingPage() {
       .join("\n");
 
     if (!transcriptMessage) {
+      // Empty visit ends here — deduct cumulative active recording time.
       await chargeVisitMinutesIfNeeded(
         dispatch,
         recordingTimeAtStop,
@@ -780,11 +781,8 @@ export default function RecordingPage() {
       return;
     }
 
-    await chargeVisitMinutesIfNeeded(
-      dispatch,
-      recordingTimeAtStop,
-      visitMinutesChargedAtStop
-    );
+    // Minutes are deducted only at End Visit (or logout), not on Stop,
+    // so Back to Recording can accumulate more active time for the same visit.
     dispatch(stopRecording());
     dispatch(setReportLoading(true));
     dispatch(setCurrentView("report"));

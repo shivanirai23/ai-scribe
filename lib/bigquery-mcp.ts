@@ -26,6 +26,17 @@ export interface WriteDiagnosisFeedbackInput {
   patient_id?: string;
 }
 
+export interface GetSubscriptionMinutesLeftInput {
+  doctor_id: string;
+  doctor_name?: string;
+}
+
+export interface DeductSubscriptionMinutesInput {
+  doctor_id: string;
+  consumed_minutes: number;
+  doctor_name?: string;
+}
+
 interface JsonRpcError {
   message?: string;
   code?: number;
@@ -182,7 +193,7 @@ function parseToolResult(result: unknown): Record<string, unknown> {
   const toolResult = result as ToolCallResult;
 
   if (toolResult?.isError) {
-    throw new Error(toolResult.content?.[0]?.text || "write_diagnosis_feedback failed");
+    throw new Error(toolResult.content?.[0]?.text || "MCP tool call failed");
   }
 
   const text = toolResult?.content?.find((item) => item.type === "text")?.text;
@@ -199,13 +210,10 @@ function parseToolResult(result: unknown): Record<string, unknown> {
   }
 }
 
-export async function writeDiagnosisFeedback(
-  input: WriteDiagnosisFeedbackInput
+async function callMcpTool(
+  name: string,
+  args: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  if (input.rating !== 0 && input.rating !== 1) {
-    throw new Error("rating must be 0 or 1");
-  }
-
   const sessionId = await initializeMcpSession();
   const { result } = await sendMcpMessage(
     {
@@ -213,12 +221,55 @@ export async function writeDiagnosisFeedback(
       id: 2,
       method: "tools/call",
       params: {
-        name: "write_diagnosis_feedback",
-        arguments: input,
+        name,
+        arguments: args,
       },
     },
     sessionId
   );
 
   return parseToolResult(result);
+}
+
+export async function writeDiagnosisFeedback(
+  input: WriteDiagnosisFeedbackInput
+): Promise<Record<string, unknown>> {
+  if (input.rating !== 0 && input.rating !== 1) {
+    throw new Error("rating must be 0 or 1");
+  }
+
+  return callMcpTool("write_diagnosis_feedback", { ...input });
+}
+
+export async function getSubscriptionMinutesLeft(
+  input: GetSubscriptionMinutesLeftInput
+): Promise<Record<string, unknown>> {
+  const doctorId = input.doctor_id.trim();
+  if (!doctorId) {
+    throw new Error("doctor_id is required");
+  }
+
+  return callMcpTool("get_subscription_minutes_left", {
+    doctor_id: doctorId,
+    doctor_name: input.doctor_name?.trim() || "",
+  });
+}
+
+export async function deductSubscriptionMinutes(
+  input: DeductSubscriptionMinutesInput
+): Promise<Record<string, unknown>> {
+  const doctorId = input.doctor_id.trim();
+  if (!doctorId) {
+    throw new Error("doctor_id is required");
+  }
+
+  if (!Number.isFinite(input.consumed_minutes) || input.consumed_minutes < 0) {
+    throw new Error("consumed_minutes must be a non-negative number");
+  }
+
+  return callMcpTool("deduct_subscription_minutes", {
+    doctor_id: doctorId,
+    consumed_minutes: input.consumed_minutes,
+    doctor_name: input.doctor_name?.trim() || "",
+  });
 }

@@ -477,7 +477,10 @@ export function UserProfileSidebar() {
         {/* Footer */}
         <div className="p-4 sm:p-6 border-t border-slate-100">
           <div className="text-xs text-slate-400 mb-3 text-center">
-            Minutes Left – {user.totalMinutesLeft}
+            Minutes Left –{" "}
+            {Number.isInteger(user.totalMinutesLeft)
+              ? user.totalMinutesLeft
+              : user.totalMinutesLeft.toFixed(1)}
           </div>
           <button
             onClick={handleLogout}
