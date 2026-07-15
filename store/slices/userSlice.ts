@@ -40,6 +40,7 @@ const userSlice = createSlice({
         firstName?: string;
         lastName?: string;
         speciality?: string;
+        email?: string;
       }>
     ) {
       return { ...state, ...action.payload };

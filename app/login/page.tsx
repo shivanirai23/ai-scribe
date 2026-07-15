@@ -29,6 +29,7 @@ import {
   PASSWORD_REQUIREMENTS_MSG,
 } from "@/lib/auth/reset-password";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
+import { syncEndUserProfile } from "@/lib/auth/profile";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -193,6 +194,9 @@ export default function LoginPage() {
       );
       dispatch(setLoggedIn(true));
       void syncMinutesLeft(dispatch);
+      void syncEndUserProfile(dispatch).catch(() => {
+        // Keep claim/pending profile if platform profile sync fails.
+      });
       router.push("/recording");
     } catch (error) {
       setError(formatAuthError(error, "Sign in failed. Please try again."));

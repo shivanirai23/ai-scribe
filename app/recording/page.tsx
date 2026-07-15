@@ -15,12 +15,15 @@ import {
   tickTimer,
   setCurrentView,
   setShowQRCode,
-  setReportLoading,
-  setReportData,
+  startReportGeneration,
+  patchReportData,
+  setReportSectionLoading,
   setConnectionState,
   setSessionId,
   setSpeechDetected,
   setFormattedTranscription,
+  type ReportData,
+  type ReportSectionKey,
 } from "@/store/slices/recordingSlice";
 import { Header, UserProfileSidebar } from "@/components/recording/Header";
 import { AlertBanners } from "@/components/recording/AlertBanners";
@@ -31,7 +34,6 @@ import { QRCodeDialog } from "@/components/recording/Dialogs";
 import { ReportView } from "@/components/report/ReportView";
 import type { AlertType } from "@/components/recording/AlertBanners";
 import { chargeVisitMinutesIfNeeded } from "@/lib/auth/minutes";
-import type { ReportData } from "@/store/slices/recordingSlice";
 import { apiFetch, cleanDateValue, mapFollowUpAppointment } from "@/lib/utils";
 import { normalizeMedicationFrequency } from "@/lib/medication";
 import { normalizeReferrals } from "@/lib/referrals";
@@ -60,26 +62,6 @@ function resolveAlertType(id: string): AlertType {
 
   return "socket-disconnected";
 }
-
-const EMPTY_REPORT: ReportData = {
-  visitNotes: [],
-  soapNote: {
-    subjective: {},
-    objective: {},
-    assessment: {},
-    plan: {},
-  },
-  icdCodes: { icd_codes: [] },
-  cptCodes: { cpt_codes: [] },
-  cpt2Codes: { codes: [] },
-  emCodes: { em_code: "", description: "" },
-  medication: { prescribed_medications: [], in_clinic_medications: [] },
-  labtest: { lab_test: [] },
-  followup: { follow_up_appointment: null },
-  vaccine: { vaccine: [] },
-  procedure: { procedure: [] },
-  referrals: [],
-};
 
 function normalizeSpeaker(value: string) {
   const lower = value.trim().toLowerCase();
@@ -262,6 +244,21 @@ export default function RecordingPage() {
     rawMessage: string,
     visitIdAtGeneration: string | null = null
   ) => {
+    const isStale = () =>
+      visitIdAtGeneration != null &&
+      store.getState().recording.visitId !== visitIdAtGeneration;
+
+    const finishSection = (
+      section: ReportSectionKey,
+      patch?: Partial<ReportData>
+    ) => {
+      if (isStale()) return;
+      if (patch) {
+        dispatch(patchReportData(patch));
+      }
+      dispatch(setReportSectionLoading({ section, loading: false }));
+    };
+
     const callAgentRoute = async <T,>(url: string, extraBody?: Record<string, string>) => {
       try {
         const response = await apiFetch(url, {
@@ -302,7 +299,13 @@ export default function RecordingPage() {
       }
     };
 
-    const callTranscriptionFormatter = async () => {
+    const today = new Date().toLocaleDateString("en-US", {
+      month: "2-digit",
+      day: "2-digit",
+      year: "numeric",
+    });
+
+    const runTranscriptionFormatter = async () => {
       try {
         const formatterResponse = await apiFetch("/api/transcription-formatter", {
           method: "POST",
@@ -315,11 +318,15 @@ export default function RecordingPage() {
         });
 
         if (!formatterResponse.ok) {
-          const formatterData = (await formatterResponse.json().catch(() => ({}))) as { error?: string };
-          return {
-            ok: false as const,
-            error: formatterData.error || "Transcription formatter failed",
+          const formatterData = (await formatterResponse.json().catch(() => ({}))) as {
+            error?: string;
           };
+          console.warn(
+            "[generateReport] Transcription formatter failed:",
+            formatterData.error || "Transcription formatter failed"
+          );
+          finishSection("transcription");
+          return;
         }
 
         const formatterData = (await formatterResponse.json()) as {
@@ -332,420 +339,442 @@ export default function RecordingPage() {
         const formattedPayload = structuredTranscript ?? formatterData.transcription;
         const speakerLines = extractSpeakerLines(formattedPayload);
 
+        if (isStale()) return;
+
         if (speakerLines.length > 0) {
           dispatch(setFormattedTranscription(speakerLines));
-          console.log("[generateReport] Formatted transcription lines:", speakerLines);
-        } else if (typeof formatterData.transcription === "string" && formatterData.transcription.trim()) {
+        } else if (
+          typeof formatterData.transcription === "string" &&
+          formatterData.transcription.trim()
+        ) {
           const lines = formatterData.transcription
             .split("\n")
             .map((line) => line.trim())
             .filter((line) => line.length > 0);
-          dispatch(setFormattedTranscription(lines.length > 0 ? lines : [formatterData.transcription]));
-          console.log("[generateReport] Formatted transcription:", formatterData.transcription);
+          dispatch(
+            setFormattedTranscription(
+              lines.length > 0 ? lines : [formatterData.transcription]
+            )
+          );
         }
-
-        return {
-          ok: true as const,
-          error: null,
-        };
       } catch (error) {
         console.error("[generateReport] Transcription formatter error:", error);
-        return {
-          ok: false as const,
-          error: error instanceof Error ? error.message : "Transcription formatter failed",
-        };
+      } finally {
+        finishSection("transcription");
       }
     };
 
-    const today = new Date().toLocaleDateString("en-US", {
-      month: "2-digit",
-      day: "2-digit",
-      year: "numeric",
-    });
-
-    const [formatterResult, visitResult, soapResult, icdResult, cpt2Result, followUpResult, emCodeResult, medicationResult, procedureResult, referralResult, cptPipelineResult, labTestResult, vaccineResult] =
-      await Promise.all([
-        callTranscriptionFormatter(),
-        callAgentRoute<{
-          visit_notes?: string[];
-        }>("/api/visit-notes"),
-        callAgentRoute<{
-          subjective?: string;
-          objective?: string;
-          assessment?: string;
-          plan?: string;
-        }>("/api/soap-notes"),
-        callAgentRoute<{
-          icd_codes?: Array<{
-            icd_10_code: string;
-            name: string;
-          }>;
-        }>("/api/icd-10-codes"),
-        callAgentRoute<{
-          codes?: Array<{
-            cpt2_code: string;
-            description: string;
-          }>;
-        }>("/api/cpt2-codes"),
-        callAgentRoute<{
-          follow_ups?: unknown[];
-        }>("/api/follow-ups", { current_date: today }),
-        callAgentRoute<{
-          em_code?: string;
-          description?: string;
-        }>("/api/em-code"),
-        callAgentRoute<{
-          medication?: unknown[];
-        }>("/api/medications"),
-        callAgentRoute<{
-          procedure?: unknown[];
-          procedures?: unknown[];
-        }>("/api/procedures", { current_date: today }),
-        callAgentRoute<{
-          referrals?: unknown[];
-        }>("/api/referrals"),
-        callAgentRoute<{
-          procedures?: unknown[];
-          cpt_codes?: Array<{ cpt_code: string; name: string }>;
-        }>("/api/cpt-pipeline"),
-        callAgentRoute<{
-          lab_test?: unknown[];
-        }>("/api/lab-tests", { current_date: today }),
-        callAgentRoute<{
-          vaccine?: unknown[];
-        }>("/api/vaccines", { current_date: today }),
-      ]);
-
-    const visitData = (visitResult.data || {}) as {
-      visit_notes?: string[];
+    const runVisitNotes = async () => {
+      const result = await callAgentRoute<{ visit_notes?: string[] }>("/api/visit-notes");
+      if (!result.ok) {
+        console.warn("[generateReport] Visit notes failed:", result.error);
+        finishSection("visitNotes");
+        return;
+      }
+      const mappedVisitNotes = (result.data?.visit_notes || []).filter(
+        (item) => item.trim().length > 0
+      );
+      finishSection("visitNotes", {
+        visitNotes:
+          mappedVisitNotes.length > 0 ? [mappedVisitNotes.join("\n\n")] : [],
+      });
     };
 
-    const soapData = (soapResult.data || {}) as {
-      subjective?: string;
-      objective?: string;
-      assessment?: string;
-      plan?: string;
-    };
-
-    const icdData = (icdResult.data || {}) as {
-      icd_codes?: Array<{
-        icd_10_code: string;
-        name: string;
-      }>;
-    };
-
-    const cpt2Data = (cpt2Result.data || {}) as {
-      codes?: Array<{
-        cpt2_code: string;
-        description: string;
-      }>;
-    };
-
-    const followUpData = (followUpResult.data || {}) as {
-      follow_ups?: unknown[];
-    };
-
-    const emCodeData = (emCodeResult.data || {}) as {
-      em_code?: string;
-      description?: string;
-    };
-
-    const medicationData = (medicationResult.data || {}) as {
-      medication?: unknown[];
-    };
-
-    const procedureData = (procedureResult.data || {}) as {
-      procedure?: unknown[];
-      procedures?: unknown[];
-    };
-
-    const referralData = (referralResult.data || {}) as {
-      referrals?: unknown[];
-    };
-
-    const cptPipelineData = (cptPipelineResult.data || {}) as {
-      procedures?: unknown[];
-      cpt_codes?: Array<{ cpt_code: string; name: string }>;
-    };
-
-    const labTestData = (labTestResult.data || {}) as {
-      lab_test?: unknown[];
-    };
-
-    const vaccineData = (vaccineResult.data || {}) as {
-      vaccine?: unknown[];
-    };
-
-    const mappedVisitNotes = (visitData.visit_notes || []).filter((item) => item.trim().length > 0);
-    const subjective = soapData.subjective?.trim() || "";
-    const objective = soapData.objective?.trim() || "";
-    const assessment = soapData.assessment?.trim() || "";
-    const plan = soapData.plan?.trim() || "";
-    const mappedIcdCodes = icdData.icd_codes || [];
-    const mappedCpt2Codes = cpt2Data.codes || [];
-    const firstFollowUp = (followUpData.follow_ups || [])[0];
-    const mappedFollowUp = mapFollowUpAppointment(firstFollowUp);
-
-    const mappedPrescribedMedications = (medicationData.medication || [])
-      .map((item) => {
-        if (typeof item === "string") {
-          return {
-            correct_medicine_name: item,
-            dosage: "",
-            unit: "",
-            frequency: { morning: null, afternoon: null, night: null },
-            start_date: today,
-            days: "",
-            instruction: "",
-          };
-        }
-
-        if (item && typeof item === "object") {
-          const med = item as {
-            correct_medicine_name?: unknown;
-            medicine_name?: unknown;
-            name?: unknown;
-            dosage?: unknown;
-            unit?: unknown;
-            start_date?: unknown;
-            days?: unknown;
-            instruction?: unknown;
-            frequency?: unknown;
-          };
-
-          const rawFreq = med.frequency;
-          const frequency = normalizeMedicationFrequency(rawFreq);
-
-          const medicineName =
-            typeof med.correct_medicine_name === "string"
-              ? med.correct_medicine_name
-              : typeof med.medicine_name === "string"
-                ? med.medicine_name
-                : typeof med.name === "string"
-                  ? med.name
-                  : "";
-
-          if (!medicineName) {
-            return null;
-          }
-
-          return {
-            correct_medicine_name: medicineName,
-            dosage: typeof med.dosage === "string" ? med.dosage : "",
-            unit: typeof med.unit === "string" ? med.unit : "",
-            frequency,
-            start_date: typeof med.start_date === "string" && med.start_date ? med.start_date : today,
-            days: typeof med.days === "string" ? med.days : "",
-            instruction: typeof med.instruction === "string" ? med.instruction : "",
-          };
-        }
-
-        return null;
-      })
-      .filter((item): item is ReportData["medication"]["prescribed_medications"][number] => item !== null);
-
-    const mappedProcedures = (
-      procedureData.procedure || procedureData.procedures || cptPipelineData.procedures || []
-    )
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const procedure = item as {
-          name?: unknown;
-          reason?: unknown;
-          notes?: unknown;
-          procedure_name?: unknown;
-          clinical_context?: unknown;
-          date?: unknown;
-          procedure_type?: unknown;
-        };
-
-        const name =
-          typeof procedure.name === "string"
-            ? procedure.name
-            : typeof procedure.procedure_name === "string"
-              ? procedure.procedure_name
-              : "";
-
-        if (!name.trim()) {
-          return null;
-        }
-
-        const mapped: Record<string, unknown> = { name };
-        const date = cleanDateValue(procedure.date);
-        if (date) {
-          mapped.date = date;
-        }
-        if (typeof procedure.procedure_type === "string" && procedure.procedure_type.trim()) {
-          mapped.procedure_type = procedure.procedure_type;
-        }
-        const note =
-          typeof procedure.notes === "string" && procedure.notes.trim()
-            ? procedure.notes
-            : typeof procedure.reason === "string" && procedure.reason.trim()
-              ? procedure.reason
-              : typeof procedure.clinical_context === "string" && procedure.clinical_context.trim()
-                ? procedure.clinical_context
-                : "";
-        if (note) {
-          mapped.notes = note;
-        }
-
-        return mapped;
-      })
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    const mappedReferrals = normalizeReferrals({ referrals: referralData.referrals || [] });
-
-    const mappedCptCodes = cptPipelineData.cpt_codes || [];
-    const mappedLabTests = (labTestData.lab_test || [])
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const lab = item as {
-          name?: unknown;
-          test_name?: unknown;
-          date?: unknown;
-          notes?: unknown;
-        };
-
-        const name =
-          typeof lab.name === "string"
-            ? lab.name
-            : typeof lab.test_name === "string"
-              ? lab.test_name
-              : "";
-        if (!name.trim()) return null;
-
-        const mapped: Record<string, unknown> = { name };
-        const date = cleanDateValue(lab.date);
-        if (date) {
-          mapped.date = date;
-        }
-        if (typeof lab.notes === "string" && lab.notes.trim()) {
-          mapped.notes = lab.notes.trim();
-        }
-
-        return mapped;
-      })
-      .filter((item): item is Record<string, unknown> => item !== null);
-
-    const mappedVaccines = (vaccineData.vaccine || [])
-      .map((item) => {
-        if (typeof item === "string") {
-          return item.trim() ? { name: item.trim() } : null;
-        }
-        if (!item || typeof item !== "object") return null;
-        const vaccine = item as {
-          name?: unknown;
-          vaccine_name?: unknown;
-          vaccineName?: unknown;
-          dose?: unknown;
-          dose_number?: unknown;
-          doseNumber?: unknown;
-          date?: unknown;
-          vaccinationDate?: unknown;
-        };
-        const name =
-          typeof vaccine.name === "string"
-            ? vaccine.name
-            : typeof vaccine.vaccine_name === "string"
-              ? vaccine.vaccine_name
-              : typeof vaccine.vaccineName === "string"
-                ? vaccine.vaccineName
-                : "";
-        if (!name.trim()) return null;
-        const dose =
-          typeof vaccine.dose === "string"
-            ? vaccine.dose
-            : typeof vaccine.dose_number === "string"
-              ? vaccine.dose_number
-              : typeof vaccine.doseNumber === "string"
-                ? vaccine.doseNumber
-                : "";
-        const date =
-          typeof vaccine.date === "string"
-            ? vaccine.date
-            : typeof vaccine.vaccinationDate === "string"
-              ? vaccine.vaccinationDate
-              : "";
-        return {
-          name,
-          ...(dose ? { dose } : {}),
-          ...(date.trim() ? { date } : {}),
-        };
-      })
-      .filter((item): item is { name: string; dose?: string; date?: string } => item !== null);
-
-    const failedAgents = [
-      formatterResult.ok ? null : `Transcription formatter: ${formatterResult.error}`,
-      visitResult.ok ? null : `Visit notes: ${visitResult.error}`,
-      soapResult.ok ? null : `SOAP notes: ${soapResult.error}`,
-      icdResult.ok ? null : `ICD-10: ${icdResult.error}`,
-      cpt2Result.ok ? null : `CPT-2: ${cpt2Result.error}`,
-      followUpResult.ok ? null : `Follow-up: ${followUpResult.error}`,
-      emCodeResult.ok ? null : `E&M: ${emCodeResult.error}`,
-      medicationResult.ok ? null : `Medication: ${medicationResult.error}`,
-      procedureResult.ok ? null : `Procedures: ${procedureResult.error}`,
-      referralResult.ok ? null : `Referrals: ${referralResult.error}`,
-      cptPipelineResult.ok ? null : `CPT pipeline: ${cptPipelineResult.error}`,
-      labTestResult.ok ? null : `Lab tests: ${labTestResult.error}`,
-      vaccineResult.ok ? null : `Vaccines: ${vaccineResult.error}`,
-    ].filter((item): item is string => item !== null);
-
-    if (
-      visitIdAtGeneration != null &&
-      store.getState().recording.visitId !== visitIdAtGeneration
-    ) {
-      return;
-    }
-
-    dispatch(
-      setReportData({
-        ...EMPTY_REPORT,
-        visitNotes: visitResult.ok && mappedVisitNotes.length > 0
-          ? [mappedVisitNotes.join("\n\n")]
-          : [],
+    const runSoapNotes = async () => {
+      const result = await callAgentRoute<{
+        subjective?: string;
+        objective?: string;
+        assessment?: string;
+        plan?: string;
+      }>("/api/soap-notes");
+      if (!result.ok) {
+        console.warn("[generateReport] SOAP notes failed:", result.error);
+        finishSection("soapNote");
+        return;
+      }
+      const subjective = result.data?.subjective?.trim() || "";
+      const objective = result.data?.objective?.trim() || "";
+      const assessment = result.data?.assessment?.trim() || "";
+      const plan = result.data?.plan?.trim() || "";
+      finishSection("soapNote", {
         soapNote: {
           subjective: subjective ? { subjective } : {},
           objective: objective ? { objective } : {},
           assessment: assessment ? { assessment } : {},
           plan: plan ? { plan } : {},
         },
-        icdCodes: {
-          icd_codes: mappedIcdCodes,
-        },
-        cpt2Codes: {
-          codes: mappedCpt2Codes,
-        },
-        cptCodes: {
-          cpt_codes: mappedCptCodes,
-        },
+      });
+    };
+
+    const runIcdCodes = async () => {
+      const result = await callAgentRoute<{
+        icd_codes?: Array<{ icd_10_code: string; name: string }>;
+      }>("/api/icd-10-codes");
+      if (!result.ok) {
+        console.warn("[generateReport] ICD-10 failed:", result.error);
+        finishSection("icdCodes");
+        return;
+      }
+      finishSection("icdCodes", {
+        icdCodes: { icd_codes: result.data?.icd_codes || [] },
+      });
+    };
+
+    const runCpt2Codes = async () => {
+      const result = await callAgentRoute<{
+        codes?: Array<{ cpt2_code: string; description: string }>;
+      }>("/api/cpt2-codes");
+      if (!result.ok) {
+        console.warn("[generateReport] CPT-2 failed:", result.error);
+        finishSection("cpt2Codes");
+        return;
+      }
+      finishSection("cpt2Codes", {
+        cpt2Codes: { codes: result.data?.codes || [] },
+      });
+    };
+
+    const runFollowUp = async () => {
+      const result = await callAgentRoute<{ follow_ups?: unknown[] }>(
+        "/api/follow-ups",
+        { current_date: today }
+      );
+      if (!result.ok) {
+        console.warn("[generateReport] Follow-up failed:", result.error);
+        finishSection("followup");
+        return;
+      }
+      const firstFollowUp = (result.data?.follow_ups || [])[0];
+      finishSection("followup", {
+        followup: { follow_up_appointment: mapFollowUpAppointment(firstFollowUp) },
+      });
+    };
+
+    const runEmCode = async () => {
+      const result = await callAgentRoute<{ em_code?: string; description?: string }>(
+        "/api/em-code"
+      );
+      if (!result.ok) {
+        console.warn("[generateReport] E&M failed:", result.error);
+        finishSection("emCodes");
+        return;
+      }
+      finishSection("emCodes", {
         emCodes: {
-          em_code: emCodeData.em_code || "",
-          description: emCodeData.description || "",
+          em_code: result.data?.em_code || "",
+          description: result.data?.description || "",
         },
-        followup: {
-          follow_up_appointment: mappedFollowUp,
-        },
+      });
+    };
+
+    const runMedications = async () => {
+      const result = await callAgentRoute<{ medication?: unknown[] }>("/api/medications");
+      if (!result.ok) {
+        console.warn("[generateReport] Medication failed:", result.error);
+        finishSection("medication");
+        return;
+      }
+
+      const mappedPrescribedMedications = (result.data?.medication || [])
+        .map((item) => {
+          if (typeof item === "string") {
+            return {
+              correct_medicine_name: item,
+              dosage: "",
+              unit: "",
+              frequency: { morning: null, afternoon: null, night: null },
+              start_date: today,
+              days: "",
+              instruction: "",
+            };
+          }
+
+          if (item && typeof item === "object") {
+            const med = item as {
+              correct_medicine_name?: unknown;
+              medicine_name?: unknown;
+              name?: unknown;
+              dosage?: unknown;
+              unit?: unknown;
+              start_date?: unknown;
+              days?: unknown;
+              instruction?: unknown;
+              frequency?: unknown;
+            };
+
+            const frequency = normalizeMedicationFrequency(med.frequency);
+            const medicineName =
+              typeof med.correct_medicine_name === "string"
+                ? med.correct_medicine_name
+                : typeof med.medicine_name === "string"
+                  ? med.medicine_name
+                  : typeof med.name === "string"
+                    ? med.name
+                    : "";
+
+            if (!medicineName) {
+              return null;
+            }
+
+            return {
+              correct_medicine_name: medicineName,
+              dosage: typeof med.dosage === "string" ? med.dosage : "",
+              unit: typeof med.unit === "string" ? med.unit : "",
+              frequency,
+              start_date:
+                typeof med.start_date === "string" && med.start_date
+                  ? med.start_date
+                  : today,
+              days: typeof med.days === "string" ? med.days : "",
+              instruction: typeof med.instruction === "string" ? med.instruction : "",
+            };
+          }
+
+          return null;
+        })
+        .filter(
+          (item): item is ReportData["medication"]["prescribed_medications"][number] =>
+            item !== null
+        );
+
+      finishSection("medication", {
         medication: {
           prescribed_medications: mappedPrescribedMedications,
           in_clinic_medications: [],
         },
-        procedure: {
-          procedure: mappedProcedures,
-        },
-        vaccine: {
-          vaccine: mappedVaccines,
-        },
-        referrals: mappedReferrals,
-        labtest: {
-          lab_test: mappedLabTests,
-        },
-      })
-    );
+      });
+    };
 
-    if (failedAgents.length > 0) {
-      console.warn("Some agent requests failed:", failedAgents);
-    }
+    const mapProcedures = (items: unknown[]) =>
+      items
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const procedure = item as {
+            name?: unknown;
+            reason?: unknown;
+            notes?: unknown;
+            procedure_name?: unknown;
+            clinical_context?: unknown;
+            date?: unknown;
+            procedure_type?: unknown;
+          };
+
+          const name =
+            typeof procedure.name === "string"
+              ? procedure.name
+              : typeof procedure.procedure_name === "string"
+                ? procedure.procedure_name
+                : "";
+
+          if (!name.trim()) {
+            return null;
+          }
+
+          const mapped: Record<string, unknown> = { name };
+          const date = cleanDateValue(procedure.date);
+          if (date) {
+            mapped.date = date;
+          }
+          if (typeof procedure.procedure_type === "string" && procedure.procedure_type.trim()) {
+            mapped.procedure_type = procedure.procedure_type;
+          }
+          const note =
+            typeof procedure.notes === "string" && procedure.notes.trim()
+              ? procedure.notes
+              : typeof procedure.reason === "string" && procedure.reason.trim()
+                ? procedure.reason
+                : typeof procedure.clinical_context === "string" &&
+                    procedure.clinical_context.trim()
+                  ? procedure.clinical_context
+                  : "";
+          if (note) {
+            mapped.notes = note;
+          }
+
+          return mapped;
+        })
+        .filter((item): item is Record<string, unknown> => item !== null);
+
+    const runProcedures = async () => {
+      const result = await callAgentRoute<{
+        procedure?: unknown[];
+        procedures?: unknown[];
+      }>("/api/procedures", { current_date: today });
+      if (!result.ok) {
+        console.warn("[generateReport] Procedures failed:", result.error);
+        finishSection("procedure");
+        return;
+      }
+      const mappedProcedures = mapProcedures(
+        result.data?.procedure || result.data?.procedures || []
+      );
+      finishSection("procedure", {
+        procedure: { procedure: mappedProcedures },
+      });
+    };
+
+    const runReferrals = async () => {
+      const result = await callAgentRoute<{ referrals?: unknown[] }>("/api/referrals");
+      if (!result.ok) {
+        console.warn("[generateReport] Referrals failed:", result.error);
+        finishSection("referrals");
+        return;
+      }
+      finishSection("referrals", {
+        referrals: normalizeReferrals({ referrals: result.data?.referrals || [] }),
+      });
+    };
+
+    const runCptPipeline = async () => {
+      const result = await callAgentRoute<{
+        procedures?: unknown[];
+        cpt_codes?: Array<{ cpt_code: string; name: string }>;
+      }>("/api/cpt-pipeline");
+      if (!result.ok) {
+        console.warn("[generateReport] CPT pipeline failed:", result.error);
+        finishSection("cptCodes");
+        return;
+      }
+
+      const mappedCptCodes = result.data?.cpt_codes || [];
+      const patch: Partial<ReportData> = {
+        cptCodes: { cpt_codes: mappedCptCodes },
+      };
+
+      const currentProcedures = store.getState().recording.reportData?.procedure.procedure || [];
+      if (currentProcedures.length === 0) {
+        const pipelineProcedures = mapProcedures(result.data?.procedures || []);
+        if (pipelineProcedures.length > 0) {
+          patch.procedure = { procedure: pipelineProcedures };
+        }
+      }
+
+      finishSection("cptCodes", patch);
+    };
+
+    const runLabTests = async () => {
+      const result = await callAgentRoute<{ lab_test?: unknown[] }>("/api/lab-tests", {
+        current_date: today,
+      });
+      if (!result.ok) {
+        console.warn("[generateReport] Lab tests failed:", result.error);
+        finishSection("labtest");
+        return;
+      }
+
+      const mappedLabTests = (result.data?.lab_test || [])
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const lab = item as {
+            name?: unknown;
+            test_name?: unknown;
+            date?: unknown;
+            notes?: unknown;
+          };
+
+          const name =
+            typeof lab.name === "string"
+              ? lab.name
+              : typeof lab.test_name === "string"
+                ? lab.test_name
+                : "";
+          if (!name.trim()) return null;
+
+          const mapped: Record<string, unknown> = { name };
+          const date = cleanDateValue(lab.date);
+          if (date) {
+            mapped.date = date;
+          }
+          if (typeof lab.notes === "string" && lab.notes.trim()) {
+            mapped.notes = lab.notes.trim();
+          }
+
+          return mapped;
+        })
+        .filter((item): item is Record<string, unknown> => item !== null);
+
+      finishSection("labtest", {
+        labtest: { lab_test: mappedLabTests },
+      });
+    };
+
+    const runVaccines = async () => {
+      const result = await callAgentRoute<{ vaccine?: unknown[] }>("/api/vaccines", {
+        current_date: today,
+      });
+      if (!result.ok) {
+        console.warn("[generateReport] Vaccines failed:", result.error);
+        finishSection("vaccine");
+        return;
+      }
+
+      const mappedVaccines = (result.data?.vaccine || [])
+        .map((item) => {
+          if (typeof item === "string") {
+            return item.trim() ? { name: item.trim() } : null;
+          }
+          if (!item || typeof item !== "object") return null;
+          const vaccine = item as {
+            name?: unknown;
+            vaccine_name?: unknown;
+            vaccineName?: unknown;
+            dose?: unknown;
+            dose_number?: unknown;
+            doseNumber?: unknown;
+            date?: unknown;
+            vaccinationDate?: unknown;
+          };
+          const name =
+            typeof vaccine.name === "string"
+              ? vaccine.name
+              : typeof vaccine.vaccine_name === "string"
+                ? vaccine.vaccine_name
+                : typeof vaccine.vaccineName === "string"
+                  ? vaccine.vaccineName
+                  : "";
+          if (!name.trim()) return null;
+          const dose =
+            typeof vaccine.dose === "string"
+              ? vaccine.dose
+              : typeof vaccine.dose_number === "string"
+                ? vaccine.dose_number
+                : typeof vaccine.doseNumber === "string"
+                  ? vaccine.doseNumber
+                  : "";
+          const date =
+            typeof vaccine.date === "string"
+              ? vaccine.date
+              : typeof vaccine.vaccinationDate === "string"
+                ? vaccine.vaccinationDate
+                : "";
+          return {
+            name,
+            ...(dose ? { dose } : {}),
+            ...(date.trim() ? { date } : {}),
+          };
+        })
+        .filter((item): item is { name: string; dose?: string; date?: string } => item !== null);
+
+      finishSection("vaccine", {
+        vaccine: { vaccine: mappedVaccines },
+      });
+    };
+
+    await Promise.all([
+      runTranscriptionFormatter(),
+      runVisitNotes(),
+      runSoapNotes(),
+      runIcdCodes(),
+      runCpt2Codes(),
+      runFollowUp(),
+      runEmCode(),
+      runMedications(),
+      runProcedures(),
+      runReferrals(),
+      runCptPipeline(),
+      runLabTests(),
+      runVaccines(),
+    ]);
   };
 
   const handleStop = async () => {
@@ -785,7 +814,7 @@ export default function RecordingPage() {
     // Minutes are deducted only at End Visit (or logout), not on Stop,
     // so Back to Recording can accumulate more active time for the same visit.
     dispatch(stopRecording());
-    dispatch(setReportLoading(true));
+    dispatch(startReportGeneration());
     dispatch(setCurrentView("report"));
 
     await generateReportFromMessage(transcriptMessage, visitIdAtStop);
@@ -798,7 +827,7 @@ export default function RecordingPage() {
     const visitId = `visit_${Date.now()}`;
     dispatch(startVisit(visitId));
     dispatch(addTranscription(message));
-    dispatch(setReportLoading(true));
+    dispatch(startReportGeneration());
     router.push("/visit-details");
 
     await generateReportFromMessage(message);

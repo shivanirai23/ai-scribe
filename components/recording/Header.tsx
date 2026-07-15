@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Crown, QrCode, X, LogOut, Save, LockKeyhole, Info, Eye, EyeOff, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   setShowUserSidebar,
@@ -28,6 +29,11 @@ import {
   getIdentitySession,
   identityApi,
 } from "@/lib/auth/session";
+import {
+  fetchEndUserProfile,
+  mapEndUserToUserFields,
+  updateEndUserProfile,
+} from "@/lib/auth/profile";
 import { updateProfile } from "@/store/slices/userSlice";
 
 function InfoTooltip({ text }: { text: string }) {
@@ -147,6 +153,8 @@ export function UserProfileSidebar() {
   const [specialty, setSpecialty] = useState(user.speciality);
   const [firstNameError, setFirstNameError] = useState("");
   const [lastNameError, setLastNameError] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
 
   // Change password dialog
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
@@ -170,13 +178,54 @@ export function UserProfileSidebar() {
   const initials = getInitials(user.firstName || "U", user.lastName || "S");
 
   useEffect(() => {
-    if (showSidebar) {
-      void syncMinutesLeft(dispatch);
+    if (!showSidebar) {
+      return;
     }
+
+    setFirstName(user.firstName);
+    setLastName(user.lastName);
+    setSpecialty(user.speciality);
+    setFirstNameError("");
+    setLastNameError("");
+    void syncMinutesLeft(dispatch);
+
+    const loadProfile = async () => {
+      const session = (await ensureIdentitySession()) || getIdentitySession();
+      const userId = session?.userId?.trim();
+      if (!userId) {
+        return;
+      }
+
+      setIsLoadingProfile(true);
+      try {
+        const profile = await fetchEndUserProfile(userId);
+        const fields = mapEndUserToUserFields(profile);
+        dispatch(updateProfile(fields));
+        setFirstName(fields.firstName);
+        setLastName(fields.lastName);
+        setSpecialty(fields.speciality);
+      } catch (error) {
+        toast.error(
+          formatAuthError(error, "Could not refresh profile. You can still edit locally.")
+        );
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    void loadProfile();
+    // Refresh only when the sidebar opens; form fields are seeded from current Redux user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSidebar, dispatch]);
+
+  const specialtyOptions: string[] = [...SPECIALTIES];
+  if (specialty && !specialtyOptions.includes(specialty)) {
+    specialtyOptions.unshift(specialty);
+  }
 
   const handleSave = async () => {
     let hasError = false;
+
     if (!firstName || firstName.length < 2) {
       setFirstNameError("Min 2 characters");
       hasError = true;
@@ -185,14 +234,37 @@ export function UserProfileSidebar() {
       setLastNameError("Min 2 characters");
       hasError = true;
     }
+    if (!specialty) {
+      toast.error("Please select a specialty");
+      hasError = true;
+    }
     if (hasError) return;
 
     try {
-      // Profile update platform API pending — persist locally for now.
-      dispatch(updateProfile({ firstName, lastName, speciality: specialty }));
-      dispatch(setShowUserSidebar(false));
+      setIsSavingProfile(true);
+      const session = (await ensureIdentitySession()) || getIdentitySession();
+      const userId = session?.userId?.trim();
+      if (!userId) {
+        toast.error("Your session is missing a user id. Please sign in again.");
+        return;
+      }
+
+      const profile = await updateEndUserProfile(userId, {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        role: specialty,
+      });
+
+      const fields = mapEndUserToUserFields(profile);
+      dispatch(updateProfile(fields));
+      setFirstName(fields.firstName);
+      setLastName(fields.lastName);
+      setSpecialty(fields.speciality);
+      toast.success("Profile updated successfully.");
     } catch (e) {
-      setFirstNameError("Failed to update profile");
+      toast.error(formatAuthError(e, "Failed to update profile"));
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -422,8 +494,12 @@ export function UserProfileSidebar() {
               <input
                 type="text"
                 value={firstName}
-                onChange={(e) => { setFirstName(e.target.value); setFirstNameError(""); }}
-                className={`w-full p-2 sm:p-3 border rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue ${firstNameError ? "border-red-500" : "border-slate-200"}`}
+                onChange={(e) => {
+                  setFirstName(e.target.value);
+                  setFirstNameError("");
+                }}
+                disabled={isLoadingProfile || isSavingProfile}
+                className={`w-full p-2 sm:p-3 border rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-60 ${firstNameError ? "border-red-500" : "border-slate-200"}`}
               />
               {firstNameError && <p className="text-red-500 text-xs">{firstNameError}</p>}
             </div>
@@ -434,21 +510,31 @@ export function UserProfileSidebar() {
               <input
                 type="text"
                 value={lastName}
-                onChange={(e) => { setLastName(e.target.value); setLastNameError(""); }}
-                className={`w-full p-2 sm:p-3 border rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue ${lastNameError ? "border-red-500" : "border-slate-200"}`}
+                onChange={(e) => {
+                  setLastName(e.target.value);
+                  setLastNameError("");
+                }}
+                disabled={isLoadingProfile || isSavingProfile}
+                className={`w-full p-2 sm:p-3 border rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue disabled:opacity-60 ${lastNameError ? "border-red-500" : "border-slate-200"}`}
               />
               {lastNameError && <p className="text-red-500 text-xs">{lastNameError}</p>}
             </div>
 
-            {/* Specialty */}
+            {/* Specialty / role */}
             <div className="space-y-2">
               <label className="text-xs sm:text-sm font-medium text-slate-700">Specialty</label>
-              <Select value={specialty} onValueChange={setSpecialty}>
+              <Select
+                value={specialty}
+                onValueChange={(value) => {
+                  setSpecialty(value);
+                }}
+                disabled={isLoadingProfile || isSavingProfile}
+              >
                 <SelectTrigger className="!h-10 sm:!h-12 text-xs sm:text-sm">
                   <SelectValue placeholder="Select specialty" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SPECIALTIES.map((s) => (
+                  {specialtyOptions.map((s) => (
                     <SelectItem key={s} value={s}>{s}</SelectItem>
                   ))}
                 </SelectContent>
@@ -468,11 +554,16 @@ export function UserProfileSidebar() {
 
             {/* Save Changes */}
             <button
-              onClick={handleSave}
-              className="w-full !mt-3 bg-brand-blue hover:bg-brand-pink text-white rounded-xl h-10 sm:h-11 text-sm sm:text-base flex items-center justify-center transition-colors"
+              onClick={() => void handleSave()}
+              disabled={isSavingProfile || isLoadingProfile}
+              className="w-full !mt-3 bg-brand-blue hover:bg-brand-pink text-white rounded-xl h-10 sm:h-11 text-sm sm:text-base flex items-center justify-center transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Save className="h-4 w-4 mr-2" />
-              Save Changes
+              {isSavingProfile ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              {isSavingProfile ? "Saving..." : isLoadingProfile ? "Loading..." : "Save Changes"}
             </button>
 
             {/* Change Password */}

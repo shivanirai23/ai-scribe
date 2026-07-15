@@ -18,6 +18,11 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
 import {
+  mapEndUserToUserFields,
+  syncEndUserProfile,
+  updateEndUserProfile,
+} from "@/lib/auth/profile";
+import {
   DEFAULT_SUBSCRIPTION_MINUTES,
   MINUTES_LEFT_ATTRIBUTE,
   parseMinutesLeft,
@@ -251,29 +256,77 @@ export default function SignupPage() {
       );
       setIdentitySession(session);
 
-      const claims = decodeIdToken(loginResult.id_token);
-      const pending = consumePendingSignupProfile();
+      try {
+        if (session.userId) {
+          const profile = await updateEndUserProfile(session.userId, {
+            first_name: trimmedForm.firstName,
+            last_name: trimmedForm.lastName,
+            role: trimmedForm.specialty,
+          });
+          const fields = mapEndUserToUserFields(profile);
+          const claims = decodeIdToken(loginResult.id_token);
+          const pending = consumePendingSignupProfile();
+          dispatch(
+            setUser({
+              ...fields,
+              phone: pending?.phone || phoneNumber,
+              clinicName: pending?.clinicName ?? trimmedForm.clinicName,
+              totalMinutesLeft: parseMinutesLeft(
+                claims?.[MINUTES_LEFT_ATTRIBUTE] as string | undefined
+              ),
+              totalMinutesAllowed: DEFAULT_SUBSCRIPTION_MINUTES,
+            })
+          );
+        } else {
+          const claims = decodeIdToken(loginResult.id_token);
+          const pending = consumePendingSignupProfile();
+          dispatch(
+            setUser({
+              firstName: claims?.given_name ?? pending?.firstName ?? trimmedForm.firstName,
+              lastName: claims?.family_name ?? pending?.lastName ?? trimmedForm.lastName,
+              email: claims?.email ?? trimmedForm.email,
+              phone: pending?.phone || phoneNumber,
+              speciality:
+                (claims?.role as string | undefined) ??
+                (claims?.["custom:role"] as string | undefined) ??
+                pending?.speciality ??
+                trimmedForm.specialty,
+              clinicName: pending?.clinicName ?? trimmedForm.clinicName,
+              totalMinutesLeft: parseMinutesLeft(
+                claims?.[MINUTES_LEFT_ATTRIBUTE] as string | undefined
+              ),
+              totalMinutesAllowed: DEFAULT_SUBSCRIPTION_MINUTES,
+            })
+          );
+        }
+      } catch {
+        const claims = decodeIdToken(loginResult.id_token);
+        const pending = consumePendingSignupProfile();
+        dispatch(
+          setUser({
+            firstName: claims?.given_name ?? pending?.firstName ?? trimmedForm.firstName,
+            lastName: claims?.family_name ?? pending?.lastName ?? trimmedForm.lastName,
+            email: claims?.email ?? trimmedForm.email,
+            phone: pending?.phone || phoneNumber,
+            speciality:
+              (claims?.role as string | undefined) ??
+              (claims?.["custom:role"] as string | undefined) ??
+              pending?.speciality ??
+              trimmedForm.specialty,
+            clinicName: pending?.clinicName ?? trimmedForm.clinicName,
+            totalMinutesLeft: parseMinutesLeft(
+              claims?.[MINUTES_LEFT_ATTRIBUTE] as string | undefined
+            ),
+            totalMinutesAllowed: DEFAULT_SUBSCRIPTION_MINUTES,
+          })
+        );
+      }
 
-      dispatch(
-        setUser({
-          firstName: claims?.given_name ?? pending?.firstName ?? trimmedForm.firstName,
-          lastName: claims?.family_name ?? pending?.lastName ?? trimmedForm.lastName,
-          email: claims?.email ?? trimmedForm.email,
-          phone: pending?.phone || phoneNumber,
-          speciality:
-            (claims?.role as string | undefined) ??
-            (claims?.["custom:role"] as string | undefined) ??
-            pending?.speciality ??
-            trimmedForm.specialty,
-          clinicName: pending?.clinicName ?? trimmedForm.clinicName,
-          totalMinutesLeft: parseMinutesLeft(
-            claims?.[MINUTES_LEFT_ATTRIBUTE] as string | undefined
-          ),
-          totalMinutesAllowed: DEFAULT_SUBSCRIPTION_MINUTES,
-        })
-      );
       dispatch(setLoggedIn(true));
       void syncMinutesLeft(dispatch);
+      void syncEndUserProfile(dispatch).catch(() => {
+        // Profile already seeded above.
+      });
       router.push("/recording");
     } catch (error) {
       setServerError(formatAuthError(error, "Sign up failed. Please try again."));

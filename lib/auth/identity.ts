@@ -292,3 +292,52 @@ export async function changePassword(input: {
     "Failed to change password"
   );
 }
+
+export type EndUserProfile = {
+  id: string;
+  project_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+  role: string | null;
+  external_subject: string | null;
+  is_active: boolean;
+  qr_issued?: boolean;
+  metadata: Record<string, unknown> | null;
+  created_at?: string;
+  last_verified_at?: string | null;
+};
+
+export type UpdateEndUserInput = {
+  role?: string;
+  first_name?: string;
+  last_name?: string;
+  metadata?: Record<string, unknown> | null;
+  is_active?: boolean;
+};
+
+export async function getEndUser(userId: string): Promise<EndUserProfile> {
+  return identityFetch<EndUserProfile>(
+    `/api/v1/end-users/${encodeURIComponent(userId)}`,
+    {
+      method: "GET",
+      headers: identityHeaders(),
+    },
+    "Failed to fetch profile"
+  );
+}
+
+export async function updateEndUser(
+  userId: string,
+  input: UpdateEndUserInput
+): Promise<EndUserProfile> {
+  return identityFetch<EndUserProfile>(
+    `/api/v1/end-users/${encodeURIComponent(userId)}`,
+    {
+      method: "PATCH",
+      headers: identityHeaders(true),
+      body: JSON.stringify(input),
+    },
+    "Failed to update profile"
+  );
+}

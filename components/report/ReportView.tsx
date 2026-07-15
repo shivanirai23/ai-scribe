@@ -40,6 +40,14 @@ import {
 } from "@/store/slices/recordingSlice";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
+function SectionBodyLoader() {
+  return (
+    <div className="flex items-center justify-center py-8">
+      <Loader2 className="h-5 w-5 text-brand-blue animate-spin" />
+    </div>
+  );
+}
+
 function todayMmDdYyyy(): string {
   return new Date().toLocaleDateString("en-US", {
     month: "2-digit",
@@ -84,7 +92,6 @@ function FeedbackPrompt({
   onRatingChange: (rating: "up" | "down" | null) => void;
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState("");
 
   const submitFeedback = async (nextRating: "up" | "down") => {
     if (isSubmitting || nextRating === rating) {
@@ -92,7 +99,7 @@ function FeedbackPrompt({
     }
 
     if (!visitId) {
-      setError("Visit ID is missing. Start a visit before submitting feedback.");
+      toast.error("Visit ID is missing. Start a visit before submitting feedback.");
       return;
     }
 
@@ -102,7 +109,6 @@ function FeedbackPrompt({
 
     onRatingChange(nextRating);
     setIsSubmitting(true);
-    setError("");
 
     try {
       const apiResponse = await apiFetch("/api/diagnosis-feedback", {
@@ -134,7 +140,7 @@ function FeedbackPrompt({
       toast.success("Thank you for your feedback");
     } catch (submitError) {
       onRatingChange(previousRating);
-      setError(
+      toast.error(
         toUserFacingApiError(submitError, "Failed to submit feedback. Please try again.")
       );
     } finally {
@@ -143,39 +149,36 @@ function FeedbackPrompt({
   };
 
   return (
-    <div className="flex flex-col items-end gap-1 pt-2">
-      <div className="flex items-center justify-end gap-2">
-        <span className="text-xs text-slate-400">Was this helpful?</span>
-        <button
-          type="button"
-          aria-label="Thumbs up"
-          aria-pressed={rating === "up"}
-          disabled={isSubmitting}
-          onClick={() => void submitFeedback("up")}
-          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-            rating === "up"
-              ? "border-emerald-500 text-emerald-600 bg-emerald-50"
-              : "border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600"
-          }`}
-        >
-          <ThumbsUp className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          aria-label="Thumbs down"
-          aria-pressed={rating === "down"}
-          disabled={isSubmitting}
-          onClick={() => void submitFeedback("down")}
-          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-            rating === "down"
-              ? "border-rose-500 text-rose-600 bg-rose-50"
-              : "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
-          }`}
-        >
-          <ThumbsDown className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {!!error && <p className="text-xs text-rose-600">{error}</p>}
+    <div className="flex items-center justify-end gap-2 pt-2">
+      <span className="text-xs text-slate-400">Was this helpful?</span>
+      <button
+        type="button"
+        aria-label="Thumbs up"
+        aria-pressed={rating === "up"}
+        disabled={isSubmitting}
+        onClick={() => void submitFeedback("up")}
+        className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+          rating === "up"
+            ? "border-emerald-500 text-emerald-600 bg-emerald-50"
+            : "border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600"
+        }`}
+      >
+        <ThumbsUp className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        aria-label="Thumbs down"
+        aria-pressed={rating === "down"}
+        disabled={isSubmitting}
+        onClick={() => void submitFeedback("down")}
+        className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+          rating === "down"
+            ? "border-rose-500 text-rose-600 bg-rose-50"
+            : "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
+        }`}
+      >
+        <ThumbsDown className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }
@@ -254,7 +257,7 @@ function MedicalNotesTab({
 }) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
-  const reportLoading = useAppSelector((s) => s.recording.reportLoading);
+  const sectionLoading = useAppSelector((s) => s.recording.reportSectionLoading);
   const visitId = useAppSelector((s) => s.recording.visitId);
   const sessionId = useAppSelector((s) => s.recording.sessionId);
   const user = useAppSelector((s) => s.user);
@@ -262,17 +265,6 @@ function MedicalNotesTab({
   const [expandedSoap, setExpandedSoap] = useState<Record<string, boolean>>({});
   const [retryingSection, setRetryingSection] = useState<"visit" | "soap" | "icd" | "cpt" | "cpt2" | "em" | null>(null);
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
-
-  if (reportLoading) {
-    return (
-      <div className="flex justify-center items-center py-20">
-        <div className="flex flex-col items-center">
-          <Loader2 className="h-10 w-10 text-brand-blue animate-spin mb-4" />
-          <p className="text-slate-500">Processing visit notes...</p>
-        </div>
-      </div>
-    );
-  }
 
   if (!reportData) return null;
 
@@ -531,15 +523,19 @@ function MedicalNotesTab({
     { key: "plan", label: "Plan" },
   ] as const;
 
+  const isSoapMissing = soapSections.some(
+    ({ key }) => Object.keys(reportData.soapNote[key]).length === 0
+  );
+
   return (
     <div className="p-3 sm:p-6 space-y-4">
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-        {/* Visit Summary — hidden during loading */}
-        {!reportLoading && <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] flex flex-col max-h-[60vh] overflow-hidden">
+        {/* Visit Summary */}
+        <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] flex flex-col max-h-[60vh] overflow-hidden">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">Visit Summary</h3>
             <div className="flex gap-2">
-              {isVisitSummaryMissing && (
+              {!sectionLoading.visitNotes && isVisitSummaryMissing && (
                 <RetryButton onClick={retryVisitNotes} isLoading={retryingSection === "visit"} />
               )}
             </div>
@@ -547,24 +543,31 @@ function MedicalNotesTab({
           {!!retryErrors.visit && (
             <p className="text-xs text-rose-600 mb-2">{retryErrors.visit}</p>
           )}
-          <div className="text-justify whitespace-pre-line overflow-y-auto flex-1 min-h-0 pr-4 text-sm text-slate-700">
-            {reportData.visitNotes[0] || (
-              <p className="text-slate-400 italic">No visit summary available.</p>
-            )}
-          </div>
-        </div>}
+          {sectionLoading.visitNotes ? (
+            <SectionBodyLoader />
+          ) : (
+            <div className="text-justify whitespace-pre-line overflow-y-auto flex-1 min-h-0 pr-4 text-sm text-slate-700">
+              {reportData.visitNotes[0] || (
+                <p className="text-slate-400 italic">No visit summary available.</p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* SOAP Notes */}
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] flex flex-col overflow-hidden max-h-[60vh]">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">SOAP Notes</h3>
-            {soapSections.some(({ key }) => Object.keys(reportData.soapNote[key]).length === 0) && (
+            {!sectionLoading.soapNote && isSoapMissing && (
               <RetryButton onClick={retrySoapNotes} isLoading={retryingSection === "soap"} />
             )}
           </div>
           {!!retryErrors.soap && (
             <p className="text-xs text-rose-600 mb-2">{retryErrors.soap}</p>
           )}
+          {sectionLoading.soapNote ? (
+            <SectionBodyLoader />
+          ) : (
           <div className="space-y-3 overflow-y-auto flex-1">
             {soapSections.map(({ key, label }) => {
               const section = reportData.soapNote[key];
@@ -602,6 +605,7 @@ function MedicalNotesTab({
               );
             })}
           </div>
+          )}
         </div>
       </div>
 
@@ -611,98 +615,114 @@ function MedicalNotesTab({
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">ICD-10 Coding</h3>
-            {reportData.icdCodes.icd_codes.length === 0 && (
+            {!sectionLoading.icdCodes && reportData.icdCodes.icd_codes.length === 0 && (
               <RetryButton onClick={retryIcdCodes} isLoading={retryingSection === "icd"} />
             )}
           </div>
           {!!retryErrors.icd && <p className="text-xs text-rose-600 mb-2">{retryErrors.icd}</p>}
-          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
-            {reportData.icdCodes.icd_codes.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-2">No ICD codes available</p>
-            ) : (
-              reportData.icdCodes.icd_codes.map((c, i) => (
-                <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
-                  <p className="font-bold text-sm leading-snug">
-                    {c.icd_10_code} -{" "}
-                    <span className="font-medium text-slate-700">{c.name}</span>
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
+          {sectionLoading.icdCodes ? (
+            <SectionBodyLoader />
+          ) : (
+            <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
+              {reportData.icdCodes.icd_codes.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-2">No ICD codes available</p>
+              ) : (
+                reportData.icdCodes.icd_codes.map((c, i) => (
+                  <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
+                    <p className="font-bold text-sm leading-snug">
+                      {c.icd_10_code} -{" "}
+                      <span className="font-medium text-slate-700">{c.name}</span>
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* CPT Codes */}
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">CPT Codes</h3>
-            {reportData.cptCodes.cpt_codes.length === 0 && (
+            {!sectionLoading.cptCodes && reportData.cptCodes.cpt_codes.length === 0 && (
               <RetryButton onClick={retryCptCodes} isLoading={retryingSection === "cpt"} />
             )}
           </div>
           {!!retryErrors.cpt && <p className="text-xs text-rose-600 mb-2">{retryErrors.cpt}</p>}
-          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
-            {reportData.cptCodes.cpt_codes.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-2">No CPT codes available</p>
-            ) : (
-              reportData.cptCodes.cpt_codes.map((c, i) => (
-                <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
-                  <p className="font-bold text-sm leading-snug">
-                    {c.cpt_code} -{" "}
-                    <span className="font-medium text-slate-700">{c.name}</span>
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
+          {sectionLoading.cptCodes ? (
+            <SectionBodyLoader />
+          ) : (
+            <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
+              {reportData.cptCodes.cpt_codes.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-2">No CPT codes available</p>
+              ) : (
+                reportData.cptCodes.cpt_codes.map((c, i) => (
+                  <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
+                    <p className="font-bold text-sm leading-snug">
+                      {c.cpt_code} -{" "}
+                      <span className="font-medium text-slate-700">{c.name}</span>
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* CPT-2 Codes */}
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">CPT-2 Codes</h3>
-            {reportData.cpt2Codes.codes.length === 0 && (
+            {!sectionLoading.cpt2Codes && reportData.cpt2Codes.codes.length === 0 && (
               <RetryButton onClick={retryCpt2Codes} isLoading={retryingSection === "cpt2"} />
             )}
           </div>
           {!!retryErrors.cpt2 && <p className="text-xs text-rose-600 mb-2">{retryErrors.cpt2}</p>}
-          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
-            {reportData.cpt2Codes.codes.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-2">No CPT-2 codes available</p>
-            ) : (
-              reportData.cpt2Codes.codes.map((c, i) => (
-                <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
-                  <p className="font-bold text-sm leading-snug">
-                    {c.cpt2_code} -{" "}
-                    <span className="font-medium text-slate-700">{c.description}</span>
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
+          {sectionLoading.cpt2Codes ? (
+            <SectionBodyLoader />
+          ) : (
+            <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
+              {reportData.cpt2Codes.codes.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-2">No CPT-2 codes available</p>
+              ) : (
+                reportData.cpt2Codes.codes.map((c, i) => (
+                  <div key={i} className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
+                    <p className="font-bold text-sm leading-snug">
+                      {c.cpt2_code} -{" "}
+                      <span className="font-medium text-slate-700">{c.description}</span>
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* EM Codes */}
         <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] max-h-[350px] flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-medium text-lg text-black">EM Codes</h3>
-            {!reportData.emCodes.em_code && (
+            {!sectionLoading.emCodes && !reportData.emCodes.em_code && (
               <RetryButton onClick={retryEmCode} isLoading={retryingSection === "em"} />
             )}
           </div>
           {!!retryErrors.em && <p className="text-xs text-rose-600 mb-2">{retryErrors.em}</p>}
-          <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
-            {!reportData.emCodes.em_code ? (
-              <p className="text-sm text-slate-500 text-center py-2">No E&M codes available</p>
-            ) : (
-              <div className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
-                <p className="font-bold text-sm leading-snug">
-                  {reportData.emCodes.em_code} -{" "}
-                  <span className="font-medium text-slate-700">{reportData.emCodes.description}</span>
-                </p>
-              </div>
-            )}
-          </div>
+          {sectionLoading.emCodes ? (
+            <SectionBodyLoader />
+          ) : (
+            <div className="space-y-3 overflow-y-auto flex-1 min-h-0 pr-2 pb-2">
+              {!reportData.emCodes.em_code ? (
+                <p className="text-sm text-slate-500 text-center py-2">No E&M codes available</p>
+              ) : (
+                <div className="bg-white p-2.5 rounded-xl border border-slate-50 shadow-md">
+                  <p className="font-bold text-sm leading-snug">
+                    {reportData.emCodes.em_code} -{" "}
+                    <span className="font-medium text-slate-700">{reportData.emCodes.description}</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -735,22 +755,9 @@ function OrdersTab({
   const visitId = useAppSelector((s) => s.recording.visitId);
   const sessionId = useAppSelector((s) => s.recording.sessionId);
   const user = useAppSelector((s) => s.user);
-  const reportLoading = useAppSelector((s) => s.recording.reportLoading);
+  const sectionLoading = useAppSelector((s) => s.recording.reportSectionLoading);
   const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | "vaccines" | "referrals" | null>(null);
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
-
-  if (reportLoading) {
-    return (
-      <div className="p-3 sm:p-6 space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="bg-slate-50 p-3 rounded-lg animate-pulse">
-            <div className="h-4 bg-slate-200 rounded w-1/3 mb-2" />
-            <div className="h-4 bg-slate-200 rounded w-full" />
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   if (!reportData) return null;
 
@@ -1301,10 +1308,12 @@ function OrdersTab({
             <Pill className="h-4 w-4 text-slate-400" />
             Prescribed Medications
           </h3>
-          {meds.length === 0 && <RetryButton onClick={retryMedications} isLoading={retryingSection === "medications"} />}
+          {!sectionLoading.medication && meds.length === 0 && <RetryButton onClick={retryMedications} isLoading={retryingSection === "medications"} />}
         </div>
         {!!retryErrors.medications && <p className="text-xs text-rose-600 mb-2">{retryErrors.medications}</p>}
-        {meds.length === 0 ? (
+        {sectionLoading.medication ? (
+          <SectionBodyLoader />
+        ) : meds.length === 0 ? (
           <div className="text-center p-4 text-slate-500">No medications prescribed</div>
         ) : (
           <div className="space-y-2">
@@ -1346,10 +1355,12 @@ function OrdersTab({
               <FlaskConical className="h-4 w-4 text-slate-400" />
               Recommended Lab Tests
             </h3>
-            {labs.length === 0 && <RetryButton onClick={retryLabTests} isLoading={retryingSection === "labs"} />}
+            {!sectionLoading.labtest && labs.length === 0 && <RetryButton onClick={retryLabTests} isLoading={retryingSection === "labs"} />}
           </div>
           {!!retryErrors.labs && <p className="text-xs text-rose-600 mb-2">{retryErrors.labs}</p>}
-          {labs.length === 0 ? (
+          {sectionLoading.labtest ? (
+            <SectionBodyLoader />
+          ) : labs.length === 0 ? (
             <div className="text-center p-4 text-slate-500">No lab tests recommended</div>
           ) : (
             <div className="space-y-2">
@@ -1381,16 +1392,16 @@ function OrdersTab({
               Procedures
             </h3>
             <div className="flex items-center gap-2">
-              {hasNoProcedures && hasNoVaccines && (
+              {!sectionLoading.procedure && !sectionLoading.vaccine && hasNoProcedures && hasNoVaccines && (
                 <RetryButton
                   onClick={retryProceduresAndVaccines}
                   isLoading={retryingSection === "procedures"}
                 />
               )}
-              {hasNoProcedures && !hasNoVaccines && (
+              {!sectionLoading.procedure && hasNoProcedures && !hasNoVaccines && (
                 <RetryButton onClick={retryProcedures} isLoading={retryingSection === "procedures"} />
               )}
-              {hasNoVaccines && !hasNoProcedures && (
+              {!sectionLoading.vaccine && hasNoVaccines && !hasNoProcedures && (
                 <RetryButton onClick={retryVaccines} isLoading={retryingSection === "vaccines"} />
               )}
             </div>
@@ -1398,7 +1409,9 @@ function OrdersTab({
           {!!retryErrors.procedures && <p className="text-xs text-rose-600 mb-2">{retryErrors.procedures}</p>}
           {!!retryErrors.vaccines && <p className="text-xs text-rose-600 mb-2">{retryErrors.vaccines}</p>}
 
-          {allProcedures.length === 0 ? (
+          {sectionLoading.procedure || sectionLoading.vaccine ? (
+            <SectionBodyLoader />
+          ) : allProcedures.length === 0 ? (
             <div className="text-center p-4 text-slate-500">No procedure information available</div>
           ) : (
             <div className="space-y-2">
@@ -1438,10 +1451,12 @@ function OrdersTab({
               <Stethoscope className="h-4 w-4 text-slate-400" />
               Referrals
             </h3>
-            {referrals.length === 0 && <RetryButton onClick={retryReferrals} isLoading={retryingSection === "referrals"} />}
+            {!sectionLoading.referrals && referrals.length === 0 && <RetryButton onClick={retryReferrals} isLoading={retryingSection === "referrals"} />}
           </div>
           {!!retryErrors.referrals && <p className="text-xs text-rose-600 mb-2">{retryErrors.referrals}</p>}
-          {referrals.length === 0 ? (
+          {sectionLoading.referrals ? (
+            <SectionBodyLoader />
+          ) : referrals.length === 0 ? (
             <div className="text-center p-4 text-slate-500">No referrals available</div>
           ) : (
             <div className="space-y-2">
@@ -1472,10 +1487,12 @@ function OrdersTab({
               <Calendar className="h-4 w-4 text-slate-400" />
               Follow-up Appointment
             </h3>
-            {!followupCard && <RetryButton onClick={retryFollowup} isLoading={retryingSection === "followup"} />}
+            {!sectionLoading.followup && !followupCard && <RetryButton onClick={retryFollowup} isLoading={retryingSection === "followup"} />}
           </div>
           {!!retryErrors.followup && <p className="text-xs text-rose-600 mb-2">{retryErrors.followup}</p>}
-          {!followupCard ? (
+          {sectionLoading.followup ? (
+            <SectionBodyLoader />
+          ) : !followupCard ? (
             <div className="text-center p-4 text-slate-500">No follow-up appointment scheduled</div>
           ) : (
             <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
@@ -1508,7 +1525,7 @@ function OrdersTab({
 function TranscriptionTab() {
   const transcription = useAppSelector((s) => s.recording.transcription);
   const formattedTranscription = useAppSelector((s) => s.recording.formattedTranscription);
-  const reportLoading = useAppSelector((s) => s.recording.reportLoading);
+  const sectionLoading = useAppSelector((s) => s.recording.reportSectionLoading);
   const displayTranscription = formattedTranscription ?? transcription;
 
   const speakerRows = displayTranscription
@@ -1535,12 +1552,8 @@ function TranscriptionTab() {
           Full Conversation
         </h3>
         <div className="bg-slate-50 rounded-xl p-4 max-h-[60vh] overflow-y-auto border border-slate-100">
-          {reportLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-4 bg-slate-200 rounded animate-pulse" />
-              ))}
-            </div>
+          {sectionLoading.transcription ? (
+            <SectionBodyLoader />
           ) : speakerRows.length === 0 ? (
             <p className="text-slate-400 italic text-center">No transcription available</p>
           ) : (
@@ -1573,7 +1586,7 @@ export function ReportView() {
   const router = useRouter();
   const pathname = usePathname();
   const isVisitDetailsRoute = withoutBasePath(pathname ?? "") === "/visit-details";
-  const { reportData, reportLoading, visitId, transcription, formattedTranscription, recordingTime, visitMinutesCharged } = useAppSelector((s) => s.recording);
+  const { reportData, visitId, transcription, formattedTranscription, recordingTime, visitMinutesCharged } = useAppSelector((s) => s.recording);
   const transcriptMessage = buildTranscriptMessage(transcription);
   const displayTranscription = formattedTranscription ?? transcription;
   const [isExporting, setIsExporting] = useState(false);
@@ -1683,24 +1696,8 @@ export function ReportView() {
         </div>
       </header>
 
-      {/* Loading state */}
-      {reportLoading && (
-        <div className="flex justify-center items-center h-[60vh]">
-          <div className="flex flex-col items-center text-center">
-            <Loader2 className="h-12 w-12 text-brand-blue animate-spin mb-4" />
-            <h2 className="text-xl font-medium text-brand-blue mb-2">
-              Processing Your Transcription
-            </h2>
-            <p className="text-slate-600 max-w-md mb-4">
-              We&apos;re analyzing the conversation and generating your medical report. This may take
-              a few moments.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* No data state */}
-      {!reportLoading && !reportData && (
+      {!reportData && (
         <div className="flex justify-center items-center h-[60vh]">
           <div className="flex flex-col items-center text-center">
             <AlertTriangle className="h-12 w-12 text-brand-orange mb-4" />
@@ -1721,8 +1718,8 @@ export function ReportView() {
         </div>
       )}
 
-      {/* Tabs — shown when data is ready or still loading */}
-      {(reportData || reportLoading) && (
+      {/* Tabs — shown as soon as report generation starts */}
+      {reportData && (
         <main className="mx-2 py-3 px-2 sm:mx-8 sm:py-8 sm:px-6">
           <h1 className="text-base sm:text-2xl mb-2 font-semibold text-slate-800">Visit Notes</h1>
           <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] overflow-hidden">

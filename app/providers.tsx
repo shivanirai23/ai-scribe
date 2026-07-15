@@ -17,6 +17,7 @@ import {
   ensureIdentitySession,
   hasValidIdentitySession,
 } from "@/lib/auth/session";
+import { syncEndUserProfile } from "@/lib/auth/profile";
 
 function UserSessionSync() {
   const dispatch = useDispatch();
@@ -64,6 +65,9 @@ function UserSessionSync() {
           );
           dispatch(setLoggedIn(true));
           void syncMinutesLeft(dispatch);
+          void syncEndUserProfile(dispatch).catch(() => {
+            // Keep claim-based profile if platform profile sync fails.
+          });
           return;
         }
       } catch {

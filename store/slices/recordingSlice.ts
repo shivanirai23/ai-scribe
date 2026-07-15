@@ -3,6 +3,71 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 export type RecordingMode = "normal" | "conversational";
 export type AppView = "recording" | "report";
 
+export type ReportSectionKey =
+  | "visitNotes"
+  | "soapNote"
+  | "icdCodes"
+  | "cptCodes"
+  | "cpt2Codes"
+  | "emCodes"
+  | "medication"
+  | "labtest"
+  | "followup"
+  | "procedure"
+  | "vaccine"
+  | "referrals"
+  | "transcription";
+
+export const REPORT_SECTION_KEYS: ReportSectionKey[] = [
+  "visitNotes",
+  "soapNote",
+  "icdCodes",
+  "cptCodes",
+  "cpt2Codes",
+  "emCodes",
+  "medication",
+  "labtest",
+  "followup",
+  "procedure",
+  "vaccine",
+  "referrals",
+  "transcription",
+];
+
+export type ReportSectionLoading = Record<ReportSectionKey, boolean>;
+
+export function createEmptyReportData(): ReportData {
+  return {
+    visitNotes: [],
+    soapNote: {
+      subjective: {},
+      objective: {},
+      assessment: {},
+      plan: {},
+    },
+    icdCodes: { icd_codes: [] },
+    cptCodes: { cpt_codes: [] },
+    cpt2Codes: { codes: [] },
+    emCodes: { em_code: "", description: "" },
+    medication: { prescribed_medications: [], in_clinic_medications: [] },
+    labtest: { lab_test: [] },
+    followup: { follow_up_appointment: null },
+    vaccine: { vaccine: [] },
+    procedure: { procedure: [] },
+    referrals: [],
+  };
+}
+
+function createSectionLoading(loading: boolean): ReportSectionLoading {
+  return Object.fromEntries(
+    REPORT_SECTION_KEYS.map((key) => [key, loading])
+  ) as ReportSectionLoading;
+}
+
+function isAnySectionLoading(sections: ReportSectionLoading): boolean {
+  return REPORT_SECTION_KEYS.some((key) => sections[key]);
+}
+
 export interface QAHistoryItem {
   questionEn: string;
   questionTranslated: string;
@@ -35,6 +100,7 @@ export interface RecordingState {
   isAnswerPaused: boolean;
   reportData: ReportData | null;
   reportLoading: boolean;
+  reportSectionLoading: ReportSectionLoading;
   showModeWarning: boolean;
   showQRCode: boolean;
   showUserSidebar: boolean;
@@ -109,6 +175,7 @@ const initialState: RecordingState = {
   isAnswerPaused: false,
   reportData: null,
   reportLoading: false,
+  reportSectionLoading: createSectionLoading(false),
   showModeWarning: false,
   showQRCode: false,
   showUserSidebar: false,
@@ -130,6 +197,7 @@ const recordingSlice = createSlice({
       state.formattedTranscription = null;
       state.reportData = null;
       state.reportLoading = false;
+      state.reportSectionLoading = createSectionLoading(false);
       state.recordingTime = 0;
       state.visitMinutesCharged = false;
     },
@@ -165,12 +233,42 @@ const recordingSlice = createSlice({
     setFormattedTranscription(state, action: PayloadAction<string[] | null>) {
       state.formattedTranscription = action.payload;
     },
+    startReportGeneration(state) {
+      state.reportData = createEmptyReportData();
+      state.formattedTranscription = null;
+      state.reportSectionLoading = createSectionLoading(true);
+      state.reportLoading = true;
+    },
+    patchReportData(state, action: PayloadAction<Partial<ReportData>>) {
+      if (!state.reportData) {
+        state.reportData = {
+          ...createEmptyReportData(),
+          ...action.payload,
+        };
+        return;
+      }
+      state.reportData = {
+        ...state.reportData,
+        ...action.payload,
+      };
+    },
+    setReportSectionLoading(
+      state,
+      action: PayloadAction<{ section: ReportSectionKey; loading: boolean }>
+    ) {
+      state.reportSectionLoading[action.payload.section] = action.payload.loading;
+      state.reportLoading = isAnySectionLoading(state.reportSectionLoading);
+    },
     setReportData(state, action: PayloadAction<ReportData>) {
       state.reportData = action.payload;
       state.reportLoading = false;
+      state.reportSectionLoading = createSectionLoading(false);
     },
     setReportLoading(state, action: PayloadAction<boolean>) {
       state.reportLoading = action.payload;
+      if (!action.payload) {
+        state.reportSectionLoading = createSectionLoading(false);
+      }
     },
     setCurrentView(state, action: PayloadAction<AppView>) {
       state.currentView = action.payload;
@@ -242,6 +340,9 @@ export const {
   addTranscription,
   setTranscription,
   setFormattedTranscription,
+  startReportGeneration,
+  patchReportData,
+  setReportSectionLoading,
   setReportData,
   setReportLoading,
   setCurrentView,
