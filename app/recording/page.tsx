@@ -60,6 +60,15 @@ function resolveAlertType(id: string): AlertType {
     return "network-slow";
   }
 
+  if (
+    id === "socket-reconnecting" ||
+    id.startsWith("socket-closed:") ||
+    id.startsWith("socket-connect:") ||
+    id.startsWith("socket-error:")
+  ) {
+    return "socket-disconnected";
+  }
+
   return "socket-disconnected";
 }
 

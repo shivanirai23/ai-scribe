@@ -27,7 +27,7 @@ export function TranscriptionPanel({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcription]);
+  }, [transcription, liveDraft]);
 
   return (
     <div className="flex flex-col bg-white rounded-2xl shadow-[0_2px_6px_rgba(0,0,0,0.04),0_0_16px_2px_rgba(191,223,241,0.9)] p-6 pt-4">

@@ -48,15 +48,49 @@ function getWorkletUrl() {
   return `${window.location.origin}${withBasePath("/pcm-recorder-processor.js")}`;
 }
 
+/** Same as live_transcriber.html */
+function isTranscriptContinuation(prev: string, next: string) {
+  const a = String(prev || "").trim().toLowerCase();
+  const b = String(next || "").trim().toLowerCase();
+  if (!a || !b) return true;
+  return b.startsWith(a) || a.startsWith(b);
+}
+
+/** Same as live_transcriber.html */
+function stripCommittedTranscriptPrefix(text: string, completedTranscript: string) {
+  let rest = String(text || "").trim();
+  if (!rest || !completedTranscript.trim()) return rest;
+
+  for (const line of completedTranscript.split("\n")) {
+    const seg = line.trim();
+    if (!seg) continue;
+    if (rest.toLowerCase().startsWith(seg.toLowerCase())) {
+      rest = rest.slice(seg.length).replace(/^[\s.,;:|\-]+/, "");
+    } else {
+      break;
+    }
+  }
+
+  const flatCommitted = completedTranscript.replace(/\n/g, " ").trim();
+  if (flatCommitted && rest.toLowerCase().startsWith(flatCommitted.toLowerCase())) {
+    rest = rest.slice(flatCommitted.length).replace(/^[\s.,;:|\-]+/, "");
+  }
+
+  return rest.trim();
+}
+
 export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const currentTurnRef = useRef("");
-  const liveDraftRef = useRef("");
+  /** Matches HTML `currentTurnText` — open turn live text */
+  const currentTurnTextRef = useRef("");
+  /** Matches HTML `completedTranscript` — committed turns joined by newlines */
+  const completedTranscriptRef = useRef("");
   const transcriptTextSourceRef = useRef<string | null>(null);
+  const wsInputThisTurnRef = useRef(false);
   const audioStartedRef = useRef(false);
   const audioSendingEnabledRef = useRef(false);
   const sessionActiveRef = useRef(false);
@@ -135,21 +169,64 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     }
   }, []);
 
-  const commitTranscriptLine = useCallback((text: string) => {
-    const finalText = String(text || "").trim();
-    currentTurnRef.current = "";
-    liveDraftRef.current = "";
+  /**
+   * Replace in place — input_transcription partials are cumulative
+   * (same as live_transcriber.html `setTranscriptText`).
+   */
+  const setTranscriptText = useCallback((text: string, options?: { append?: boolean }) => {
+    const prev = currentTurnTextRef.current || "";
+    const next = String(text || "");
+    const append = options?.append === true;
+    const merged = append
+      ? next.startsWith(prev) || prev.startsWith(next)
+        ? next.length >= prev.length
+          ? next
+          : prev
+        : prev + next
+      : next;
+
+    currentTurnTextRef.current = merged;
+    callbacksRef.current.onLiveDraft(merged);
+  }, []);
+
+  /** Same as live_transcriber.html `finishCurrentTurn` */
+  const finishCurrentTurn = useCallback(() => {
+    const currentTurnText = currentTurnTextRef.current;
+    currentTurnTextRef.current = "";
     callbacksRef.current.onLiveDraft("");
 
-    if (finalText) {
-      callbacksRef.current.onTurnComplete(finalText);
+    if (currentTurnText) {
+      completedTranscriptRef.current +=
+        (completedTranscriptRef.current ? "\n" : "") + currentTurnText;
+      callbacksRef.current.onTurnComplete(currentTurnText);
     }
   }, []);
 
-  const finishCurrentTurn = useCallback(() => {
-    commitTranscriptLine(currentTurnRef.current || liveDraftRef.current);
-  }, [commitTranscriptLine]);
+  /** Same as live_transcriber.html `applyInputTranscription` */
+  const applyInputTranscription = useCallback(
+    (text: string, finished: boolean) => {
+      const cleaned = stripCommittedTranscriptPrefix(text, completedTranscriptRef.current);
+      if (!cleaned) return;
 
+      // Gemini often omits finished=true between utterances. If the new text is not a
+      // growing/revising partial of the open turn, commit the previous line first so
+      // turn 2 is not replaced by turn 3.
+      if (
+        currentTurnTextRef.current &&
+        !isTranscriptContinuation(currentTurnTextRef.current, cleaned)
+      ) {
+        finishCurrentTurn();
+      }
+
+      setTranscriptText(cleaned);
+      if (finished) {
+        finishCurrentTurn();
+      }
+    },
+    [finishCurrentTurn, setTranscriptText]
+  );
+
+  /** Same as live_transcriber.html `handleWsJsonFrame` */
   const handleWsJsonFrame = useCallback(
     (frame: {
       type?: string;
@@ -157,53 +234,73 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
       source?: string;
       content?: string;
       message?: string;
-      partial?: boolean | null;
       finished?: boolean;
     }) => {
       if (!frame || typeof frame !== "object") {
         return;
       }
 
-      const type = frame.type || "";
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          "[ws json]",
+          frame.type,
+          frame.source || "",
+          frame.modality || "",
+          typeof frame.content === "string" ? frame.content.slice(0, 80) : ""
+        );
+      }
 
-      if (type === "start") {
+      if (frame.type === "start") {
         transcriptTextSourceRef.current = null;
+        // Do not reset wsInputThisTurn — backend sends start when agent replies.
         return;
       }
 
-      if (type === "data" && frame.modality === "text") {
-        if (frame.partial === true) {
-          return;
-        }
-
+      if (frame.type === "data" && frame.modality === "text") {
         const text = frame.content;
         const source = frame.source || "";
 
-        if (source === "input_transcription" || source === "input") {
+        // Primary: user's speech → text (audio-to-text)
+        if (source === "input_transcription") {
           if (text) {
+            wsInputThisTurnRef.current = true;
             transcriptTextSourceRef.current = "input";
-            commitTranscriptLine(text);
+            applyInputTranscription(text, !!frame.finished);
+          }
+          return;
+        }
+
+        // Text-routing fallback: model transcript on text channel
+        // (same as live_transcriber.html — only when no input_transcription this turn)
+        if (
+          text != null &&
+          (source === "output" || source === "output_transcription" || !source)
+        ) {
+          if (!wsInputThisTurnRef.current) {
+            transcriptTextSourceRef.current = source || "output";
+            setTranscriptText(text, { append: true });
           }
           return;
         }
         return;
       }
 
-      if (type === "data" && frame.modality === "audio") {
+      if (frame.type === "data" && frame.modality === "audio") {
         return;
       }
 
-      if (type === "end") {
+      if (frame.type === "end") {
         finishCurrentTurn();
+        wsInputThisTurnRef.current = false;
         transcriptTextSourceRef.current = null;
         return;
       }
 
-      if (type === "error") {
+      if (frame.type === "error") {
         callbacksRef.current.onError(`socket-error:${frame.message || "Agent error"}`);
       }
     },
-    [commitTranscriptLine, finishCurrentTurn]
+    [applyInputTranscription, finishCurrentTurn, setTranscriptText]
   );
 
   const closeSocket = useCallback(() => {
@@ -213,18 +310,16 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
       socket.onmessage = null;
       socket.onerror = null;
       socket.onclose = null;
-      if (socket.readyState === WebSocket.OPEN) {
+      if (
+        socket.readyState === WebSocket.OPEN ||
+        socket.readyState === WebSocket.CONNECTING
+      ) {
         socket.close(1000, "cleanup");
       }
     }
     wsRef.current = null;
     audioStartedRef.current = false;
   }, []);
-
-  const shouldKeepSession = useCallback(
-    () => sessionActiveRef.current && !manualCloseRef.current,
-    []
-  );
 
   const mintLiveSession = useCallback(async () => {
     sessionIdRef.current = sessionIdRef.current || createSessionId();
@@ -247,6 +342,47 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     callbacksRef.current.onSessionId?.(sessionIdRef.current);
     return sessionInfo;
   }, []);
+
+  const stopAudioCapture = useCallback(() => {
+    audioSendingEnabledRef.current = false;
+    stopSpeechMonitor();
+
+    recorderNodeRef.current?.disconnect();
+    analyserRef.current?.disconnect();
+    micStreamRef.current?.getTracks().forEach((track) => track.stop());
+
+    recorderNodeRef.current = null;
+    analyserRef.current = null;
+    micStreamRef.current = null;
+
+    if (audioCtxRef.current) {
+      void audioCtxRef.current.close();
+      audioCtxRef.current = null;
+    }
+  }, [stopSpeechMonitor]);
+
+  const connectRef = useRef<(() => Promise<void>) | null>(null);
+
+  const scheduleReconnect = useCallback(() => {
+    if (!sessionActiveRef.current || manualCloseRef.current) {
+      return;
+    }
+
+    reconnectAttemptRef.current += 1;
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * Math.min(reconnectAttemptRef.current, 10),
+      RECONNECT_MAX_DELAY_MS
+    );
+
+    callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: true });
+    // Badge: Connection Interrupted / Trying to reconnect…
+    callbacksRef.current.onError("socket-reconnecting");
+
+    stopReconnectTimer();
+    reconnectTimerRef.current = setTimeout(() => {
+      void connectRef.current?.();
+    }, delay);
+  }, [stopReconnectTimer]);
 
   const openWebSocket = useCallback(
     (sessionInfo: LiveSessionResponse) =>
@@ -297,11 +433,21 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
             return;
           }
 
+          let frame: {
+            type?: string;
+            modality?: string;
+            source?: string;
+            content?: string;
+            message?: string;
+            finished?: boolean;
+          };
           try {
-            handleWsJsonFrame(JSON.parse(event.data));
+            frame = JSON.parse(event.data);
           } catch {
-            callbacksRef.current.onError("socket-parse-error");
+            return;
           }
+
+          handleWsJsonFrame(frame);
         };
 
         socket.onerror = () => {
@@ -318,107 +464,18 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
 
           stopKeepalive();
           audioStartedRef.current = false;
-          callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
-          stopSpeechMonitor();
 
-          if (manualCloseRef.current) {
+          if (manualCloseRef.current || !sessionActiveRef.current) {
+            callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
             return;
           }
 
-          if (!sessionActiveRef.current) {
-            return;
-          }
-
-          reconnectAttemptRef.current += 1;
-          const delay = Math.min(
-            RECONNECT_BASE_DELAY_MS * Math.min(reconnectAttemptRef.current, 10),
-            RECONNECT_MAX_DELAY_MS
-          );
-
-          callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: true });
-          callbacksRef.current.onError("socket-reconnecting");
-
-          stopReconnectTimer();
-          reconnectTimerRef.current = setTimeout(() => {
-            void connectRef.current?.();
-          }, delay);
+          // Keep mic/recording UI running; show disconnected badge and retry WS.
+          scheduleReconnect();
         };
       }),
-    [handleWsJsonFrame, sendAudioPcm, startKeepalive, stopKeepalive, stopReconnectTimer, stopSpeechMonitor]
+    [handleWsJsonFrame, scheduleReconnect, sendAudioPcm, startKeepalive, stopKeepalive]
   );
-
-  const connectRef = useRef<(() => Promise<void>) | null>(null);
-
-  const connect = useCallback(async () => {
-    if (!sessionActiveRef.current) {
-      return;
-    }
-
-    stopReconnectTimer();
-    callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: true });
-
-    try {
-      const sessionInfo = await mintLiveSession();
-      await openWebSocket(sessionInfo);
-    } catch (error) {
-      if (!shouldKeepSession()) {
-        callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
-        return;
-      }
-
-      const message = error instanceof Error ? error.message : "Unable to connect live socket";
-      callbacksRef.current.onError(`socket-connect:${message}`);
-
-      reconnectAttemptRef.current += 1;
-      const delay = Math.min(
-        RECONNECT_BASE_DELAY_MS * Math.min(reconnectAttemptRef.current, 10),
-        RECONNECT_MAX_DELAY_MS
-      );
-
-      callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: true });
-      callbacksRef.current.onError("socket-reconnecting");
-
-      stopReconnectTimer();
-      reconnectTimerRef.current = setTimeout(() => {
-        void connectRef.current?.();
-      }, delay);
-    }
-  }, [mintLiveSession, openWebSocket, shouldKeepSession, stopReconnectTimer]);
-
-  connectRef.current = connect;
-
-  const disconnect = useCallback(() => {
-    sessionActiveRef.current = false;
-    manualCloseRef.current = true;
-    audioSendingEnabledRef.current = false;
-
-    stopReconnectTimer();
-    stopKeepalive();
-    stopSpeechMonitor();
-    closeSocket();
-
-    finishCurrentTurn();
-    transcriptTextSourceRef.current = null;
-    callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
-  }, [closeSocket, finishCurrentTurn, stopKeepalive, stopReconnectTimer, stopSpeechMonitor]);
-
-  const stopAudioCapture = useCallback(() => {
-    audioSendingEnabledRef.current = false;
-    stopSpeechMonitor();
-
-    recorderNodeRef.current?.disconnect();
-    analyserRef.current?.disconnect();
-    micStreamRef.current?.getTracks().forEach((track) => track.stop());
-
-    recorderNodeRef.current = null;
-    analyserRef.current = null;
-    micStreamRef.current = null;
-
-    if (audioCtxRef.current) {
-      void audioCtxRef.current.close();
-      audioCtxRef.current = null;
-    }
-  }, [stopSpeechMonitor]);
 
   const startAudioCapture = useCallback(async () => {
     try {
@@ -445,7 +502,10 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
 
       const recorderNode = new AudioWorkletNode(audioCtxRef.current, "pcm-recorder-processor");
       recorderNode.port.onmessage = (event) => {
-        if (!(event.data instanceof ArrayBuffer) || !audioSendingEnabledRef.current) {
+        if (!(event.data instanceof ArrayBuffer)) {
+          return;
+        }
+        if (!audioSendingEnabledRef.current) {
           return;
         }
         sendAudioPcm(new Uint8Array(event.data));
@@ -485,16 +545,63 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     startSpeechMonitor();
   }, [startSpeechMonitor]);
 
+  const connect = useCallback(async () => {
+    if (!sessionActiveRef.current) {
+      return;
+    }
+
+    stopReconnectTimer();
+    callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: true });
+
+    try {
+      const sessionInfo = await mintLiveSession();
+      await openWebSocket(sessionInfo);
+    } catch (error) {
+      if (!sessionActiveRef.current || manualCloseRef.current) {
+        callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "Unable to connect live socket";
+      callbacksRef.current.onError(`socket-connect:${message}`);
+      scheduleReconnect();
+    }
+  }, [mintLiveSession, openWebSocket, scheduleReconnect, stopReconnectTimer]);
+
+  connectRef.current = connect;
+
+  const disconnect = useCallback(() => {
+    manualCloseRef.current = true;
+    sessionActiveRef.current = false;
+    audioSendingEnabledRef.current = false;
+    audioStartedRef.current = false;
+    wsInputThisTurnRef.current = false;
+
+    stopReconnectTimer();
+    stopKeepalive();
+    stopSpeechMonitor();
+    closeSocket();
+
+    finishCurrentTurn();
+    transcriptTextSourceRef.current = null;
+    callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
+  }, [closeSocket, finishCurrentTurn, stopKeepalive, stopReconnectTimer, stopSpeechMonitor]);
+
+  /**
+   * Same order as live_transcriber.html `startSession`:
+   * mic first → mint session + open WS → start sending.
+   */
   const startTranscription = useCallback(async (): Promise<boolean> => {
     manualCloseRef.current = false;
     sessionActiveRef.current = true;
+    reconnectAttemptRef.current = 0;
     sessionIdRef.current = createSessionId();
-    currentTurnRef.current = "";
-    liveDraftRef.current = "";
+    currentTurnTextRef.current = "";
+    completedTranscriptRef.current = "";
     transcriptTextSourceRef.current = null;
+    wsInputThisTurnRef.current = false;
     callbacksRef.current.onLiveDraft("");
 
-    // HTML order: microphone first, then mint + open WebSocket.
     const micStarted = await startAudioCapture();
     if (!micStarted) {
       sessionActiveRef.current = false;
@@ -505,18 +612,27 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
       await connect();
       startSendingAudio();
       return true;
-    } catch {
+    } catch (error) {
+      console.error("Start failed:", error);
+      const message = error instanceof Error ? error.message : "Failed to start live transcription";
+      stopReconnectTimer();
       stopAudioCapture();
+      closeSocket();
       sessionActiveRef.current = false;
       callbacksRef.current.onConnectionState({ isConnected: false, isConnecting: false });
+      callbacksRef.current.onError(`socket-connect:${message}`);
       return false;
     }
-  }, [connect, startAudioCapture, startSendingAudio, stopAudioCapture]);
+  }, [closeSocket, connect, startAudioCapture, startSendingAudio, stopAudioCapture, stopReconnectTimer]);
 
+  /** Commit open draft without firing onTurnComplete (caller adds to Redux). */
   const flushDraft = useCallback(() => {
-    const draft = (currentTurnRef.current || liveDraftRef.current).trim();
-    currentTurnRef.current = "";
-    liveDraftRef.current = "";
+    const draft = currentTurnTextRef.current.trim();
+    if (draft) {
+      completedTranscriptRef.current +=
+        (completedTranscriptRef.current ? "\n" : "") + draft;
+    }
+    currentTurnTextRef.current = "";
     transcriptTextSourceRef.current = null;
     callbacksRef.current.onLiveDraft("");
     return draft;
@@ -524,10 +640,15 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
 
   useEffect(() => {
     return () => {
-      disconnect();
+      manualCloseRef.current = true;
+      sessionActiveRef.current = false;
+      stopReconnectTimer();
+      stopKeepalive();
+      stopSpeechMonitor();
+      closeSocket();
       stopAudioCapture();
     };
-  }, [disconnect, stopAudioCapture]);
+  }, [closeSocket, stopAudioCapture, stopKeepalive, stopReconnectTimer, stopSpeechMonitor]);
 
   return {
     startTranscription,
