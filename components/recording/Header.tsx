@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Crown, QrCode, X, LogOut, Save, LockKeyhole, Info, Eye, EyeOff } from "lucide-react";
+import { Crown, QrCode, X, LogOut, Save, LockKeyhole, Info, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   setShowUserSidebar,
@@ -49,10 +49,20 @@ export function Header() {
   const { visitId, showPremiumBanner, recordingTime, visitMinutesCharged } = useAppSelector(
     (s) => s.recording
   );
+  const [isEndingVisit, setIsEndingVisit] = useState(false);
 
   const handleEndVisit = async () => {
-    await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
-    dispatch(endVisit());
+    if (isEndingVisit) {
+      return;
+    }
+
+    setIsEndingVisit(true);
+    try {
+      await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
+      dispatch(endVisit());
+    } finally {
+      setIsEndingVisit(false);
+    }
   };
 
   const initials = getInitials(user.firstName || "U", user.lastName || "S");
@@ -99,9 +109,14 @@ export function Header() {
 
             <button
               onClick={() => void handleEndVisit()}
-              className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-full px-2.5 sm:px-3 md:px-4 text-xs sm:text-sm h-8 sm:h-9 flex items-center transition-colors"
+              disabled={isEndingVisit}
+              className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-full px-2.5 sm:px-3 md:px-4 text-xs sm:text-sm h-8 sm:h-9 flex items-center transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <X className="h-3 w-3 sm:h-4 sm:w-4 mr-0.5 sm:mr-1 md:mr-2" />
+              {isEndingVisit ? (
+                <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin mr-0.5 sm:mr-1 md:mr-2" />
+              ) : (
+                <X className="h-3 w-3 sm:h-4 sm:w-4 mr-0.5 sm:mr-1 md:mr-2" />
+              )}
               <span className="hidden sm:inline">End Visit</span>
             </button>
           </>

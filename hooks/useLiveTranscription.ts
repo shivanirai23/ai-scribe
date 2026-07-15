@@ -179,17 +179,11 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
         const text = frame.content;
         const source = frame.source || "";
 
-        if (source === "input_transcription") {
+        if (source === "input_transcription" || source === "input") {
           if (text) {
             transcriptTextSourceRef.current = "input";
             commitTranscriptLine(text);
           }
-          return;
-        }
-
-        if (text != null && (source === "output" || source === "output_transcription" || !source)) {
-          transcriptTextSourceRef.current = source || "output";
-          commitTranscriptLine(text);
           return;
         }
         return;

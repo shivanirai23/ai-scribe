@@ -262,7 +262,7 @@ export default function RecordingPage() {
     rawMessage: string,
     visitIdAtGeneration: string | null = null
   ) => {
-    const callAgentRoute = async <T,>(url: string) => {
+    const callAgentRoute = async <T,>(url: string, extraBody?: Record<string, string>) => {
       try {
         const response = await apiFetch(url, {
           method: "POST",
@@ -271,6 +271,7 @@ export default function RecordingPage() {
           },
           body: JSON.stringify({
             message: rawMessage,
+            ...extraBody,
           }),
         });
 
@@ -388,7 +389,7 @@ export default function RecordingPage() {
         }>("/api/cpt2-codes"),
         callAgentRoute<{
           follow_ups?: unknown[];
-        }>("/api/follow-ups"),
+        }>("/api/follow-ups", { current_date: today }),
         callAgentRoute<{
           em_code?: string;
           description?: string;
@@ -399,7 +400,7 @@ export default function RecordingPage() {
         callAgentRoute<{
           procedure?: unknown[];
           procedures?: unknown[];
-        }>("/api/procedures"),
+        }>("/api/procedures", { current_date: today }),
         callAgentRoute<{
           referrals?: unknown[];
         }>("/api/referrals"),
@@ -409,10 +410,10 @@ export default function RecordingPage() {
         }>("/api/cpt-pipeline"),
         callAgentRoute<{
           lab_test?: unknown[];
-        }>("/api/lab-tests"),
+        }>("/api/lab-tests", { current_date: today }),
         callAgentRoute<{
           vaccine?: unknown[];
-        }>("/api/vaccines"),
+        }>("/api/vaccines", { current_date: today }),
       ]);
 
     const visitData = (visitResult.data || {}) as {

@@ -21,6 +21,7 @@ import {
   ThumbsUp,
   ThumbsDown,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { apiFetch, cleanDateValue, mapFollowUpAppointment, withoutBasePath } from "@/lib/utils";
@@ -38,6 +39,14 @@ import {
   type ReportData,
 } from "@/store/slices/recordingSlice";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
+function todayMmDdYyyy(): string {
+  return new Date().toLocaleDateString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  });
+}
 
 
 function RetryButton({ onClick, isLoading = false }: { onClick: () => void; isLoading?: boolean }) {
@@ -75,6 +84,10 @@ function FeedbackPrompt({
   const [error, setError] = useState("");
 
   const submitFeedback = async (nextRating: "up" | "down") => {
+    if (isSubmitting || rating !== null) {
+      return;
+    }
+
     if (!visitId) {
       setError("Visit ID is missing. Start a visit before submitting feedback.");
       return;
@@ -83,6 +96,7 @@ function FeedbackPrompt({
     const resolvedSessionId = sessionId || `session_${visitId}`;
     const numericRating = nextRating === "up" ? 1 : 0;
 
+    setRating(nextRating);
     setIsSubmitting(true);
     setError("");
 
@@ -113,7 +127,7 @@ function FeedbackPrompt({
         throw new Error(apiError);
       }
 
-      setRating(nextRating);
+      toast.success("Thank you for your feedback");
     } catch (submitError) {
       setRating(null);
       setError(
@@ -994,7 +1008,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       const response = await apiFetch("/api/lab-tests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: transcriptMessage }),
+        body: JSON.stringify({ message: transcriptMessage, current_date: todayMmDdYyyy() }),
       });
       const data = (await response.json()) as { lab_test?: unknown[]; error?: string };
       const apiError = getApiError(response, data, "Lab tests retry failed");
@@ -1028,7 +1042,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       const response = await apiFetch("/api/follow-ups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: transcriptMessage }),
+        body: JSON.stringify({ message: transcriptMessage, current_date: todayMmDdYyyy() }),
       });
       const data = (await response.json()) as { follow_ups?: unknown[]; error?: string };
       const apiError = getApiError(response, data, "Follow-up retry failed");
@@ -1065,7 +1079,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       const response = await apiFetch("/api/procedures", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: transcriptMessage }),
+        body: JSON.stringify({ message: transcriptMessage, current_date: todayMmDdYyyy() }),
       });
 
       const data = (await response.json()) as {
@@ -1107,12 +1121,18 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         apiFetch("/api/procedures", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: transcriptMessage }),
+          body: JSON.stringify({
+            message: transcriptMessage,
+            current_date: todayMmDdYyyy(),
+          }),
         }),
         apiFetch("/api/vaccines", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: transcriptMessage }),
+          body: JSON.stringify({
+            message: transcriptMessage,
+            current_date: todayMmDdYyyy(),
+          }),
         }),
       ]);
 
@@ -1192,7 +1212,7 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
       const response = await apiFetch("/api/vaccines", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: transcriptMessage }),
+        body: JSON.stringify({ message: transcriptMessage, current_date: todayMmDdYyyy() }),
       });
 
       const data = (await response.json()) as { vaccine?: unknown[]; error?: string };
@@ -1534,6 +1554,7 @@ export function ReportView() {
   const displayTranscription = formattedTranscription ?? transcription;
   const [isExporting, setIsExporting] = useState(false);
   const [exportWarning, setExportWarning] = useState("");
+  const [isEndingVisit, setIsEndingVisit] = useState(false);
 
   const handleBack = () => {
     dispatch(setReportLoading(false));
@@ -1544,10 +1565,19 @@ export function ReportView() {
   };
 
   const handleEndVisit = async () => {
-    await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
-    dispatch(endVisit());
-    if (isVisitDetailsRoute) {
-      router.push("/recording");
+    if (isEndingVisit) {
+      return;
+    }
+
+    setIsEndingVisit(true);
+    try {
+      await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
+      dispatch(endVisit());
+      if (isVisitDetailsRoute) {
+        router.push("/recording");
+      }
+    } finally {
+      setIsEndingVisit(false);
     }
   };
 
@@ -1611,10 +1641,15 @@ export function ReportView() {
             )}
           </button>
           <button
-            onClick={handleEndVisit}
-            className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-full px-2 sm:px-4 h-8 sm:h-9 flex items-center text-sm transition-colors"
+            onClick={() => void handleEndVisit()}
+            disabled={isEndingVisit}
+            className="text-red-500 hover:text-white hover:bg-red-500 border border-red-200 rounded-full px-2 sm:px-4 h-8 sm:h-9 flex items-center text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <X className="h-4 w-4 sm:mr-1" />
+            {isEndingVisit ? (
+              <Loader2 className="h-4 w-4 animate-spin sm:mr-1" />
+            ) : (
+              <X className="h-4 w-4 sm:mr-1" />
+            )}
             <span className="hidden sm:inline">End Visit</span>
           </button>
         </div>
