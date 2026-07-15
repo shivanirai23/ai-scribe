@@ -70,6 +70,8 @@ function FeedbackPrompt({
   response,
   doctorId,
   doctorName,
+  rating,
+  onRatingChange,
 }: {
   feedbackType: "visit_notes" | "medication";
   visitId: string | null;
@@ -78,13 +80,14 @@ function FeedbackPrompt({
   response: string[];
   doctorId: string;
   doctorName: string;
+  rating: "up" | "down" | null;
+  onRatingChange: (rating: "up" | "down" | null) => void;
 }) {
-  const [rating, setRating] = useState<"up" | "down" | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const submitFeedback = async (nextRating: "up" | "down") => {
-    if (isSubmitting || rating !== null) {
+    if (isSubmitting || nextRating === rating) {
       return;
     }
 
@@ -93,10 +96,11 @@ function FeedbackPrompt({
       return;
     }
 
+    const previousRating = rating;
     const resolvedSessionId = sessionId || `session_${visitId}`;
     const numericRating = nextRating === "up" ? 1 : 0;
 
-    setRating(nextRating);
+    onRatingChange(nextRating);
     setIsSubmitting(true);
     setError("");
 
@@ -129,7 +133,7 @@ function FeedbackPrompt({
 
       toast.success("Thank you for your feedback");
     } catch (submitError) {
-      setRating(null);
+      onRatingChange(previousRating);
       setError(
         toUserFacingApiError(submitError, "Failed to submit feedback. Please try again.")
       );
@@ -146,12 +150,12 @@ function FeedbackPrompt({
           type="button"
           aria-label="Thumbs up"
           aria-pressed={rating === "up"}
-          disabled={isSubmitting || rating !== null}
-          onClick={() => submitFeedback("up")}
-          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed ${
+          disabled={isSubmitting}
+          onClick={() => void submitFeedback("up")}
+          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
             rating === "up"
-              ? "border-brand-blue text-brand-blue bg-sky-50"
-              : "border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 disabled:opacity-60"
+              ? "border-emerald-500 text-emerald-600 bg-emerald-50"
+              : "border-slate-200 text-slate-500 hover:border-emerald-300 hover:text-emerald-600"
           }`}
         >
           <ThumbsUp className="h-3.5 w-3.5" />
@@ -160,12 +164,12 @@ function FeedbackPrompt({
           type="button"
           aria-label="Thumbs down"
           aria-pressed={rating === "down"}
-          disabled={isSubmitting || rating !== null}
-          onClick={() => submitFeedback("down")}
-          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed ${
+          disabled={isSubmitting}
+          onClick={() => void submitFeedback("down")}
+          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
             rating === "down"
-              ? "border-brand-blue text-brand-blue bg-sky-50"
-              : "border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 disabled:opacity-60"
+              ? "border-rose-500 text-rose-600 bg-rose-50"
+              : "border-slate-200 text-slate-500 hover:border-rose-300 hover:text-rose-600"
           }`}
         >
           <ThumbsDown className="h-3.5 w-3.5" />
@@ -239,7 +243,15 @@ function getApiError(
   return null;
 }
 
-function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
+function MedicalNotesTab({
+  transcriptMessage,
+  feedbackRating,
+  onFeedbackRatingChange,
+}: {
+  transcriptMessage: string;
+  feedbackRating: "up" | "down" | null;
+  onFeedbackRatingChange: (rating: "up" | "down" | null) => void;
+}) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
@@ -702,12 +714,22 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
         response={medicalNotesFeedback.response}
         doctorId={resolveDoctorId(user.email) || "unknown"}
         doctorName={doctorName}
+        rating={feedbackRating}
+        onRatingChange={onFeedbackRatingChange}
       />
     </div>
   );
 }
 
-function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
+function OrdersTab({
+  transcriptMessage,
+  feedbackRating,
+  onFeedbackRatingChange,
+}: {
+  transcriptMessage: string;
+  feedbackRating: "up" | "down" | null;
+  onFeedbackRatingChange: (rating: "up" | "down" | null) => void;
+}) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
   const visitId = useAppSelector((s) => s.recording.visitId);
@@ -1476,6 +1498,8 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
         response={ordersFeedback.response}
         doctorId={resolveDoctorId(user.email) || "unknown"}
         doctorName={doctorName}
+        rating={feedbackRating}
+        onRatingChange={onFeedbackRatingChange}
       />
     </div>
   );
@@ -1555,6 +1579,10 @@ export function ReportView() {
   const [isExporting, setIsExporting] = useState(false);
   const [exportWarning, setExportWarning] = useState("");
   const [isEndingVisit, setIsEndingVisit] = useState(false);
+  const [medicalNotesFeedbackRating, setMedicalNotesFeedbackRating] = useState<"up" | "down" | null>(
+    null
+  );
+  const [ordersFeedbackRating, setOrdersFeedbackRating] = useState<"up" | "down" | null>(null);
 
   const handleBack = () => {
     dispatch(setReportLoading(false));
@@ -1717,10 +1745,18 @@ export function ReportView() {
               </div>
 
               <TabsContent value="medical-notes">
-                <MedicalNotesTab transcriptMessage={transcriptMessage} />
+                <MedicalNotesTab
+                  transcriptMessage={transcriptMessage}
+                  feedbackRating={medicalNotesFeedbackRating}
+                  onFeedbackRatingChange={setMedicalNotesFeedbackRating}
+                />
               </TabsContent>
               <TabsContent value="orders">
-                <OrdersTab transcriptMessage={transcriptMessage} />
+                <OrdersTab
+                  transcriptMessage={transcriptMessage}
+                  feedbackRating={ordersFeedbackRating}
+                  onFeedbackRatingChange={setOrdersFeedbackRating}
+                />
               </TabsContent>
               <TabsContent value="transcription">
                 <TranscriptionTab />

@@ -27,11 +27,8 @@ import {
   isInvalidResetCodeError,
   isValidPassword,
   PASSWORD_REQUIREMENTS_MSG,
-  verifyResetCode,
 } from "@/lib/auth/reset-password";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
-import { configureCognitoAuth } from "@/lib/auth/cognito";
-import { confirmResetPassword, resetPassword } from "aws-amplify/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -217,17 +214,15 @@ export default function LoginPage() {
 
     setForgotLoading(true);
     try {
-      // Forgot-password platform API pending; interim Cognito-native reset.
-      configureCognitoAuth();
-      const result = await resetPassword({ username: trimmedForgotEmail });
+      await identityApi<{ success: boolean; message: string }>("/api/identity/forgot-password", {
+        email: trimmedForgotEmail,
+      });
 
-      if (result.nextStep.resetPasswordStep === "CONFIRM_RESET_PASSWORD_WITH_CODE") {
-        setForgotStep("verify-code");
-        setForgotMsg({
-          type: "success",
-          text: "A reset code was sent to your email. Enter it below to continue.",
-        });
-      }
+      setForgotStep("verify-code");
+      setForgotMsg({
+        type: "success",
+        text: "If an account exists for this email, a password reset code has been sent.",
+      });
     } catch (error) {
       setForgotMsg({
         type: "error",
@@ -249,22 +244,11 @@ export default function LoginPage() {
       return;
     }
 
-    setForgotLoading(true);
-    try {
-      const result = await verifyResetCode(trimAuthInput(forgotEmail), trimmedResetCode);
-      if (!result.valid) {
-        setForgotMsg({ type: "error", text: result.error });
-        return;
-      }
-
-      setForgotStep("new-password");
-      setForgotMsg({
-        type: "success",
-        text: "Code verified. Choose a new password below.",
-      });
-    } finally {
-      setForgotLoading(false);
-    }
+    setForgotStep("new-password");
+    setForgotMsg({
+      type: "success",
+      text: "Enter a new password below to finish resetting.",
+    });
   };
 
   const handleConfirmResetPassword = async (e: React.FormEvent) => {
@@ -274,6 +258,7 @@ export default function LoginPage() {
     const trimmedResetCode = trimAuthInput(resetCode);
     const trimmedNewPassword = trimAuthInput(resetNewPassword);
     const trimmedConfirmPassword = trimAuthInput(resetConfirmPassword);
+    const trimmedForgotEmail = trimAuthInput(forgotEmail);
 
     if (!trimmedNewPassword || !trimmedConfirmPassword) {
       setForgotMsg({ type: "error", text: "All password fields are required." });
@@ -295,11 +280,10 @@ export default function LoginPage() {
 
     setForgotLoading(true);
     try {
-      configureCognitoAuth();
-      await confirmResetPassword({
-        username: trimAuthInput(forgotEmail),
-        confirmationCode: trimmedResetCode,
-        newPassword: trimmedNewPassword,
+      await identityApi<{ success: boolean; message: string }>("/api/identity/reset-password", {
+        email: trimmedForgotEmail,
+        code: trimmedResetCode,
+        new_password: trimmedNewPassword,
       });
 
       setForgotMsg({ type: "success", text: "Your password has been updated. You can sign in now." });

@@ -239,3 +239,56 @@ export async function logoutEndUser(email: string): Promise<{ success: boolean; 
     "Logout failed"
   );
 }
+
+export async function forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
+  return identityFetch(
+    "/api/v1/identity/forgot-password",
+    {
+      method: "POST",
+      headers: identityHeaders(true),
+      body: JSON.stringify({
+        app_id: getAppId(),
+        email,
+      }),
+    },
+    "Failed to request password reset"
+  );
+}
+
+export async function resetPassword(input: {
+  email: string;
+  code: string;
+  new_password: string;
+}): Promise<{ success: boolean; message: string }> {
+  return identityFetch(
+    "/api/v1/identity/reset-password",
+    {
+      method: "POST",
+      headers: identityHeaders(true),
+      body: JSON.stringify({
+        app_id: getAppId(),
+        ...input,
+      }),
+    },
+    "Failed to reset password"
+  );
+}
+
+export async function changePassword(input: {
+  access_token: string;
+  current_password: string;
+  new_password: string;
+}): Promise<{ success: boolean; message: string }> {
+  return identityFetch(
+    "/api/v1/identity/change-password",
+    {
+      method: "POST",
+      headers: identityHeaders(true),
+      body: JSON.stringify({
+        app_id: getAppId(),
+        ...input,
+      }),
+    },
+    "Failed to change password"
+  );
+}

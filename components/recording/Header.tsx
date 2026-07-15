@@ -20,15 +20,14 @@ import {
   isInvalidResetCodeError,
   isValidPassword,
   PASSWORD_REQUIREMENTS_MSG,
-  verifyResetCode,
 } from "@/lib/auth/reset-password";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
 import {
   clearIdentitySession,
+  ensureIdentitySession,
   getIdentitySession,
   identityApi,
 } from "@/lib/auth/session";
-import { configureCognitoAuth } from "@/lib/auth/cognito";
 import { updateProfile } from "@/store/slices/userSlice";
 
 function InfoTooltip({ text }: { text: string }) {
@@ -242,8 +241,23 @@ export function UserProfileSidebar() {
 
     try {
       setIsChangingPassword(true);
-      // Change-password platform API pending.
-      setPwError("Password change from profile will be available soon. Use Forgot password on the login page for now.");
+      const session = (await ensureIdentitySession()) || getIdentitySession();
+      if (!session?.accessToken) {
+        setPwError("Your session has expired. Please sign in again.");
+        return;
+      }
+
+      await identityApi<{ success: boolean; message: string }>("/api/identity/change-password", {
+        access_token: session.accessToken,
+        current_password: trimmedOldPassword,
+        new_password: trimmedNewPassword,
+      });
+
+      setPwSuccess("Password changed successfully.");
+      setTimeout(() => {
+        setChangePasswordOpen(false);
+        resetPasswordDialog();
+      }, 800);
     } catch (e) {
       setPwError(formatAuthError(e, "Failed to change password"));
     } finally {
@@ -262,16 +276,12 @@ export function UserProfileSidebar() {
 
     try {
       setIsResettingPassword(true);
-      configureCognitoAuth();
-      const { resetPassword } = await import("aws-amplify/auth");
-      const result = await resetPassword({ username: user.email });
+      await identityApi<{ success: boolean; message: string }>("/api/identity/forgot-password", {
+        email: user.email,
+      });
 
-      if (result.nextStep.resetPasswordStep === "CONFIRM_RESET_PASSWORD_WITH_CODE") {
-        setForgotPasswordStep("verify-code");
-        setPwSuccess("A reset code was sent to your email. Enter it below to continue.");
-      } else {
-        setPwSuccess("Password reset request submitted.");
-      }
+      setForgotPasswordStep("verify-code");
+      setPwSuccess("If an account exists for this email, a password reset code has been sent.");
     } catch (e) {
       setPwError(formatAuthError(e, "Failed to start password reset"));
     } finally {
@@ -295,19 +305,8 @@ export function UserProfileSidebar() {
       return;
     }
 
-    try {
-      setIsResettingPassword(true);
-      const result = await verifyResetCode(user.email, trimmedResetCode);
-      if (!result.valid) {
-        setPwError(result.error);
-        return;
-      }
-
-      setForgotPasswordStep("new-password");
-      setPwSuccess("Code verified. Choose a new password below.");
-    } finally {
-      setIsResettingPassword(false);
-    }
+    setForgotPasswordStep("new-password");
+    setPwSuccess("Enter a new password below to finish resetting.");
   };
 
   const handleConfirmForgotPassword = async () => {
@@ -340,12 +339,10 @@ export function UserProfileSidebar() {
 
     try {
       setIsResettingPassword(true);
-      configureCognitoAuth();
-      const { confirmResetPassword } = await import("aws-amplify/auth");
-      await confirmResetPassword({
-        username: user.email,
-        confirmationCode: trimmedResetCode,
-        newPassword: trimmedResetNewPassword,
+      await identityApi<{ success: boolean; message: string }>("/api/identity/reset-password", {
+        email: user.email,
+        code: trimmedResetCode,
+        new_password: trimmedResetNewPassword,
       });
 
       setPwSuccess("Password reset successfully. Use the new password the next time you sign in.");
