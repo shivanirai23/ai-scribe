@@ -14,6 +14,7 @@ export interface QAHistoryItem {
 
 export interface RecordingState {
   visitId: string | null;
+  sessionId: string | null;
   isRecording: boolean;
   isPaused: boolean;
   recordingTime: number;
@@ -87,6 +88,7 @@ export interface ReportData {
 
 const initialState: RecordingState = {
   visitId: null,
+  sessionId: null,
   isRecording: false,
   isPaused: false,
   recordingTime: 0,
@@ -120,6 +122,7 @@ const recordingSlice = createSlice({
   reducers: {
     startVisit(state, action: PayloadAction<string>) {
       state.visitId = action.payload;
+      state.sessionId = null;
       state.isConnected = false;
       state.isConnecting = false;
       state.currentView = "recording";
@@ -213,6 +216,9 @@ const recordingSlice = createSlice({
       state.isConnected = action.payload.isConnected;
       state.isConnecting = action.payload.isConnecting;
     },
+    setSessionId(state, action: PayloadAction<string>) {
+      state.sessionId = action.payload;
+    },
     setVisitMinutesCharged(state, action: PayloadAction<boolean>) {
       state.visitMinutesCharged = action.payload;
     },
@@ -252,6 +258,7 @@ export const {
   setAnswerPaused,
   setPendingBufferCount,
   setConnectionState,
+  setSessionId,
   setVisitMinutesCharged,
   updateVisitNote,
 } = recordingSlice.actions;

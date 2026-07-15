@@ -8,20 +8,20 @@ import { Mail, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { setUser, setLoggedIn } from "@/store/slices/userSlice";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { configureCognitoAuth } from "@/lib/auth/cognito";
 import {
   DEFAULT_SUBSCRIPTION_MINUTES,
   MINUTES_LEFT_ATTRIBUTE,
   parseMinutesLeft,
 } from "@/lib/auth/minutes";
 import {
-  confirmResetPassword,
-  confirmSignIn,
-  fetchAuthSession,
-  fetchUserAttributes,
-  resetPassword,
-  signIn,
-} from "aws-amplify/auth";
+  consumePendingSignupProfile,
+  decodeIdToken,
+  ensureIdentitySession,
+  hasValidIdentitySession,
+  identityApi,
+  sessionFromLoginResponse,
+  setIdentitySession,
+} from "@/lib/auth/session";
 import {
   isInvalidResetCodeError,
   isValidPassword,
@@ -29,6 +29,8 @@ import {
   verifyResetCode,
 } from "@/lib/auth/reset-password";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
+import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { confirmResetPassword, resetPassword } from "aws-amplify/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,13 +42,12 @@ export default function LoginPage() {
 
     const redirectAuthenticatedUser = async () => {
       try {
-        configureCognitoAuth();
-        const session = await fetchAuthSession();
+        const session = await ensureIdentitySession();
         if (!isMounted) {
           return;
         }
 
-        if (session.tokens?.accessToken || session.tokens?.idToken) {
+        if (hasValidIdentitySession(session)) {
           router.replace("/recording");
         }
       } catch {
@@ -106,35 +107,89 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      const result = await signIn({
-        username: trimmedEmail,
+      const result = await identityApi<{
+        status: string;
+        challenge_name?: string;
+        id_token?: string;
+        access_token?: string;
+        refresh_token?: string;
+        expires_in?: number;
+        token_type?: string;
+        user_sub?: string;
+        user_id?: string;
+      }>("/api/identity/login", {
+        email: trimmedEmail,
         password: trimmedPassword,
       });
 
-      if (result.nextStep.signInStep === "CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED") {
-        setError("A new password is required. Please use the 'Forgot password' option to reset your password.");
-        setIsLoading(false);
-        return;
-      } else if (result.nextStep.signInStep !== "DONE") {
-        setError("Additional authentication is required. Please try again or reset your password.");
+      if (result.status === "challenge" || result.challenge_name) {
+        setError("Additional authentication is required. MFA support is coming soon.");
         setIsLoading(false);
         return;
       }
 
-      const attributes = await fetchUserAttributes();
+      if (
+        result.status !== "authenticated" ||
+        !result.id_token ||
+        !result.access_token ||
+        !result.refresh_token ||
+        !result.expires_in
+      ) {
+        setError("Sign in failed. Please try again.");
+        setIsLoading(false);
+        return;
+      }
 
-      const firstName = attributes.given_name ?? attributes.name?.split(" ")[0] ?? "";
-      const lastName = attributes.family_name ?? attributes.name?.split(" ").slice(1).join(" ") ?? "";
+      const session = sessionFromLoginResponse(
+        {
+          id_token: result.id_token,
+          access_token: result.access_token,
+          refresh_token: result.refresh_token,
+          expires_in: result.expires_in,
+          token_type: result.token_type || "Bearer",
+          user_sub: result.user_sub,
+          user_id: result.user_id,
+        },
+        trimmedEmail
+      );
+      setIdentitySession(session);
+
+      const claims = decodeIdToken(result.id_token);
+      const pending = consumePendingSignupProfile();
+      const firstName =
+        claims?.given_name ??
+        claims?.name?.split(" ")[0] ??
+        pending?.firstName ??
+        "";
+      const lastName =
+        claims?.family_name ??
+        claims?.name?.split(" ").slice(1).join(" ") ??
+        pending?.lastName ??
+        "";
 
       dispatch(
         setUser({
           firstName,
           lastName,
-          email: attributes.email ?? trimmedEmail,
-          phone: attributes.phone_number ?? "",
-          speciality: attributes["custom:specialty"] ?? "",
-          clinicName: attributes["custom:clinic_name"] ?? "",
-          totalMinutesLeft: parseMinutesLeft(attributes[MINUTES_LEFT_ATTRIBUTE]),
+          email: claims?.email ?? trimmedEmail,
+          speciality:
+            (claims?.role as string | undefined) ??
+            (claims?.["custom:role"] as string | undefined) ??
+            (claims?.["custom:specialty"] as string | undefined) ??
+            pending?.speciality ??
+            "",
+          clinicName:
+            (claims?.["custom:clinic_name"] as string | undefined) ??
+            pending?.clinicName ??
+            "",
+          phone:
+            (claims?.["custom:phone"] as string | undefined) ??
+            (claims?.phone_number as string | undefined) ??
+            pending?.phone ??
+            "",
+          totalMinutesLeft: parseMinutesLeft(
+            claims?.[MINUTES_LEFT_ATTRIBUTE] as string | undefined
+          ),
           totalMinutesAllowed: DEFAULT_SUBSCRIPTION_MINUTES,
         })
       );
@@ -160,6 +215,8 @@ export default function LoginPage() {
 
     setForgotLoading(true);
     try {
+      // Forgot-password platform API pending; interim Cognito-native reset.
+      configureCognitoAuth();
       const result = await resetPassword({ username: trimmedForgotEmail });
 
       if (result.nextStep.resetPasswordStep === "CONFIRM_RESET_PASSWORD_WITH_CODE") {
@@ -236,6 +293,7 @@ export default function LoginPage() {
 
     setForgotLoading(true);
     try {
+      configureCognitoAuth();
       await confirmResetPassword({
         username: trimAuthInput(forgotEmail),
         confirmationCode: trimmedResetCode,

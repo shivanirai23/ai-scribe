@@ -16,11 +16,14 @@ import {
   Info,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { configureCognitoAuth } from "@/lib/auth/cognito";
-import { DEFAULT_SUBSCRIPTION_MINUTES, MINUTES_LEFT_ATTRIBUTE } from "@/lib/auth/minutes";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
 import { SPECIALTIES } from "@/lib/specialties";
-import { fetchAuthSession, signUp } from "aws-amplify/auth";
+import {
+  ensureIdentitySession,
+  hasValidIdentitySession,
+  identityApi,
+  savePendingSignupProfile,
+} from "@/lib/auth/session";
 
 const COUNTRY_CODES = [
   { code: "+1", country: "US/CA" },
@@ -65,13 +68,12 @@ export default function SignupPage() {
 
     const redirectAuthenticatedUser = async () => {
       try {
-        configureCognitoAuth();
-        const session = await fetchAuthSession();
+        const session = await ensureIdentitySession();
         if (!isMounted) {
           return;
         }
 
-        if (session.tokens?.accessToken || session.tokens?.idToken) {
+        if (hasValidIdentitySession(session)) {
           router.replace("/recording");
         }
       } catch {
@@ -161,26 +163,32 @@ export default function SignupPage() {
     setIsLoading(true);
 
     try {
-      const phoneNumber = trimmedForm.phone ? `${trimmedForm.countryCode}${trimmedForm.phone}` : undefined;
-      const result = await signUp({
-        username: trimmedForm.email,
+      const phoneNumber = trimmedForm.phone ? `${trimmedForm.countryCode}${trimmedForm.phone}` : "";
+      const result = await identityApi<{
+        user_sub: string | null;
+        user_id: string;
+        email: string;
+        confirmed: boolean;
+      }>("/api/identity/signup", {
+        email: trimmedForm.email,
         password: trimmedForm.password,
-        options: {
-          userAttributes: {
-            email: trimmedForm.email,
-            given_name: trimmedForm.firstName,
-            family_name: trimmedForm.lastName,
-            name: `${trimmedForm.firstName} ${trimmedForm.lastName}`.trim(),
-            ...(phoneNumber ? { phone_number: phoneNumber } : {}),
-            "custom:specialty": trimmedForm.specialty,
-            "custom:clinic_name": trimmedForm.clinicName,
-            [MINUTES_LEFT_ATTRIBUTE]: String(DEFAULT_SUBSCRIPTION_MINUTES),
-          },
+        first_name: trimmedForm.firstName,
+        last_name: trimmedForm.lastName,
+        attributes: {
+          role: trimmedForm.specialty,
         },
       });
 
-      if (result.nextStep.signUpStep === "CONFIRM_SIGN_UP") {
-        // Redirect to verify page with email
+      savePendingSignupProfile({
+        firstName: trimmedForm.firstName,
+        lastName: trimmedForm.lastName,
+        email: trimmedForm.email,
+        phone: phoneNumber,
+        speciality: trimmedForm.specialty,
+        clinicName: trimmedForm.clinicName,
+      });
+
+      if (!result.confirmed) {
         router.push(`/signup/verify?email=${encodeURIComponent(trimmedForm.email)}`);
         return;
       }

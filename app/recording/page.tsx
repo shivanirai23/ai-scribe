@@ -18,6 +18,7 @@ import {
   setReportLoading,
   setReportData,
   setConnectionState,
+  setSessionId,
   setSpeechDetected,
   setFormattedTranscription,
 } from "@/store/slices/recordingSlice";
@@ -164,6 +165,7 @@ export default function RecordingPage() {
     onLiveDraft: setLiveDraft,
     onTurnComplete: (text) => dispatch(addTranscription(text)),
     onConnectionState: (state) => dispatch(setConnectionState(state)),
+    onSessionId: (sessionId) => dispatch(setSessionId(sessionId)),
     onSpeechDetected: (detected) => dispatch(setSpeechDetected(detected)),
     onError: (id) => {
       pushAlert(resolveAlertType(id), id);

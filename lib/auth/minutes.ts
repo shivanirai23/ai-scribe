@@ -21,9 +21,9 @@ export function recordingSecondsToBillableMinutes(seconds: number): number {
 }
 
 export async function fetchMinutesLeftFromCognito(): Promise<number> {
-  const { fetchUserAttributes } = await import("aws-amplify/auth");
-  const attributes = await fetchUserAttributes();
-  return parseMinutesLeft(attributes[MINUTES_LEFT_ATTRIBUTE]);
+  // Remote attribute sync pending identity profile API — use persisted Redux balance.
+  const { store } = await import("@/store");
+  return store.getState().user.totalMinutesLeft ?? DEFAULT_SUBSCRIPTION_MINUTES;
 }
 
 export async function syncMinutesLeft(dispatch: AppDispatch): Promise<void> {
@@ -36,7 +36,7 @@ export async function syncMinutesLeft(dispatch: AppDispatch): Promise<void> {
       })
     );
   } catch {
-    // Not signed in or fetch failed — keep local state.
+    // Keep local state.
   }
 }
 
@@ -54,16 +54,10 @@ export async function chargeVisitMinutesIfNeeded(
   }
 
   try {
-    const { fetchUserAttributes, updateUserAttributes } = await import("aws-amplify/auth");
-    const attributes = await fetchUserAttributes();
-    const currentBalance = parseMinutesLeft(attributes[MINUTES_LEFT_ATTRIBUTE]);
+    // Profile/update platform API pending — deduct from local persisted balance for now.
+    const { store } = await import("@/store");
+    const currentBalance = store.getState().user.totalMinutesLeft ?? DEFAULT_SUBSCRIPTION_MINUTES;
     const newBalance = Math.max(0, currentBalance - minutesToDeduct);
-
-    await updateUserAttributes({
-      userAttributes: {
-        [MINUTES_LEFT_ATTRIBUTE]: String(newBalance),
-      },
-    });
 
     dispatch(setUser({ totalMinutesLeft: newBalance }));
     dispatch(setVisitMinutesCharged(true));

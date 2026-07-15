@@ -26,6 +26,7 @@ export interface LiveTranscriptionCallbacks {
   onSpeechDetected: (detected: boolean) => void;
   onError: (id: string) => void;
   onClearError?: (idPrefix: string) => void;
+  onSessionId?: (sessionId: string) => void;
 }
 
 function createSessionId() {
@@ -249,6 +250,7 @@ export function useLiveTranscription(callbacks: LiveTranscriptionCallbacks) {
     }
 
     sessionIdRef.current = sessionInfo.session_id || sessionIdRef.current;
+    callbacksRef.current.onSessionId?.(sessionIdRef.current);
     return sessionInfo;
   }, []);
 

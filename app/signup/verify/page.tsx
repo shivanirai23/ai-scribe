@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { configureCognitoAuth } from "@/lib/auth/cognito";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
-import { confirmSignUp, fetchAuthSession, resendSignUpCode } from "aws-amplify/auth";
+import {
+  ensureIdentitySession,
+  hasValidIdentitySession,
+  identityApi,
+} from "@/lib/auth/session";
 import Image from "next/image";
-import { AlertCircle, Mail } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 
 export default function VerifySignupPage() {
   const router = useRouter();
@@ -18,13 +21,12 @@ export default function VerifySignupPage() {
 
     const redirectAuthenticatedUser = async () => {
       try {
-        configureCognitoAuth();
-        const session = await fetchAuthSession();
+        const session = await ensureIdentitySession();
         if (!isMounted) {
           return;
         }
 
-        if (session.tokens?.accessToken || session.tokens?.idToken) {
+        if (hasValidIdentitySession(session)) {
           router.replace("/recording");
         }
       } catch {
@@ -54,9 +56,17 @@ export default function VerifySignupPage() {
       return;
     }
 
+    if (!email) {
+      setError("Missing email. Please go back and sign up again.");
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await confirmSignUp({ username: email, confirmationCode: trimmedCode });
+      await identityApi("/api/identity/confirm", {
+        email,
+        code: trimmedCode,
+      });
       router.push(`/login?email=${encodeURIComponent(email)}`);
     } catch (err) {
       setError(formatAuthError(err, "Verification failed. Please try again."));
@@ -67,12 +77,18 @@ export default function VerifySignupPage() {
 
   const handleResend = async () => {
     setError("");
+    setResent(false);
+
+    if (!email) {
+      setError("Missing email. Please go back and sign up again.");
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await resendSignUpCode({ username: email });
-      setResent(true);
-    } catch (err) {
-      setError("Failed to resend code. Try again later.");
+      // Platform does not expose a dedicated resend endpoint yet.
+      // Re-calling signup is unsafe (duplicate user); guide the user instead.
+      setError("Resend is not available yet. Check your inbox or spam folder for the original code.");
     } finally {
       setIsLoading(false);
     }
@@ -104,7 +120,9 @@ export default function VerifySignupPage() {
           <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-brand-gradient mt-4">
             Verify Your Email
           </h1>
-          <p className="text-slate-600 mt-2">Enter the code sent to <span className="font-semibold">{email}</span></p>
+          <p className="text-slate-600 mt-2">
+            Enter the code sent to <span className="font-semibold">{email}</span>
+          </p>
         </div>
         <div className="bg-white p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)]">
           {error && (
@@ -119,7 +137,7 @@ export default function VerifySignupPage() {
               <input
                 type="text"
                 value={code}
-                onChange={e => setCode(e.target.value)}
+                onChange={(e) => setCode(e.target.value)}
                 className="w-full p-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-brand-blue focus:border-brand-blue"
                 placeholder="Enter code"
                 autoFocus

@@ -23,6 +23,13 @@ import {
   verifyResetCode,
 } from "@/lib/auth/reset-password";
 import { formatAuthError, trimAuthInput } from "@/lib/auth/errors";
+import {
+  clearIdentitySession,
+  getIdentitySession,
+  identityApi,
+} from "@/lib/auth/session";
+import { configureCognitoAuth } from "@/lib/auth/cognito";
+import { updateProfile } from "@/store/slices/userSlice";
 
 function InfoTooltip({ text }: { text: string }) {
   return (
@@ -167,16 +174,8 @@ export function UserProfileSidebar() {
     if (hasError) return;
 
     try {
-      // Dynamically import to avoid SSR issues
-      const { updateUserAttributes } = await import("aws-amplify/auth");
-      await updateUserAttributes({
-        userAttributes: {
-          given_name: firstName,
-          family_name: lastName,
-          "custom:specialty": specialty,
-        },
-      });
-      dispatch({ type: "user/updateProfile", payload: { firstName, lastName, speciality: specialty } });
+      // Profile update platform API pending — persist locally for now.
+      dispatch(updateProfile({ firstName, lastName, speciality: specialty }));
       dispatch(setShowUserSidebar(false));
     } catch (e) {
       setFirstNameError("Failed to update profile");
@@ -228,16 +227,8 @@ export function UserProfileSidebar() {
 
     try {
       setIsChangingPassword(true);
-      const { updatePassword } = await import("aws-amplify/auth");
-      await updatePassword({
-        oldPassword: trimmedOldPassword,
-        newPassword: trimmedNewPassword,
-      });
-      setPwSuccess("Password updated successfully");
-      setTimeout(() => {
-        setChangePasswordOpen(false);
-        resetPasswordDialog();
-      }, 800);
+      // Change-password platform API pending.
+      setPwError("Password change from profile will be available soon. Use Forgot password on the login page for now.");
     } catch (e) {
       setPwError(formatAuthError(e, "Failed to change password"));
     } finally {
@@ -256,6 +247,7 @@ export function UserProfileSidebar() {
 
     try {
       setIsResettingPassword(true);
+      configureCognitoAuth();
       const { resetPassword } = await import("aws-amplify/auth");
       const result = await resetPassword({ username: user.email });
 
@@ -333,6 +325,7 @@ export function UserProfileSidebar() {
 
     try {
       setIsResettingPassword(true);
+      configureCognitoAuth();
       const { confirmResetPassword } = await import("aws-amplify/auth");
       await confirmResetPassword({
         username: user.email,
@@ -359,12 +352,15 @@ export function UserProfileSidebar() {
 
   const handleLogout = async () => {
     try {
-      // Dynamically import to avoid SSR issues
-      const { signOut } = await import("aws-amplify/auth");
-      await signOut();
-    } catch (e) {
-      // Ignore errors
+      const session = getIdentitySession();
+      const email = user.email || session?.email;
+      if (email) {
+        await identityApi("/api/identity/logout", { email });
+      }
+    } catch {
+      // Continue local logout even if remote revoke fails.
     }
+    clearIdentitySession();
     await chargeVisitMinutesIfNeeded(dispatch, recordingTime, visitMinutesCharged);
     dispatch(logout());
     dispatch(endVisit());

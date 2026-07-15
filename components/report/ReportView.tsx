@@ -18,6 +18,8 @@ import {
   Pill,
   FlaskConical,
   ClipboardCheck,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -33,6 +35,7 @@ import {
   endVisit,
   setReportData,
   setReportLoading,
+  type ReportData,
 } from "@/store/slices/recordingSlice";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -48,6 +51,156 @@ function RetryButton({ onClick, isLoading = false }: { onClick: () => void; isLo
       {isLoading ? "Retrying" : "Retry"}
     </button>
   );
+}
+
+function FeedbackPrompt({
+  feedbackType,
+  visitId,
+  sessionId,
+  notes,
+  response,
+  doctorId,
+  doctorName,
+}: {
+  feedbackType: "visit_notes" | "medication";
+  visitId: string | null;
+  sessionId: string | null;
+  notes: string;
+  response: string[];
+  doctorId: string;
+  doctorName: string;
+}) {
+  const [rating, setRating] = useState<"up" | "down" | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const submitFeedback = async (nextRating: "up" | "down") => {
+    if (!visitId) {
+      setError("Visit ID is missing. Start a visit before submitting feedback.");
+      return;
+    }
+
+    const resolvedSessionId = sessionId || `session_${visitId}`;
+    const numericRating = nextRating === "up" ? 1 : 0;
+
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      const apiResponse = await apiFetch("/api/diagnosis-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          visit_id: visitId,
+          session_id: resolvedSessionId,
+          feedback_type: feedbackType,
+          rating: numericRating,
+          notes,
+          response,
+          doctor_id: doctorId,
+          doctor_name: doctorName,
+        }),
+      });
+
+      const data = (await apiResponse.json()) as { error?: string; success?: boolean };
+      const apiError = getApiError(
+        apiResponse,
+        data,
+        "Failed to submit feedback. Please try again."
+      );
+
+      if (apiError) {
+        throw new Error(apiError);
+      }
+
+      setRating(nextRating);
+    } catch (submitError) {
+      setRating(null);
+      setError(
+        toUserFacingApiError(submitError, "Failed to submit feedback. Please try again.")
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1 pt-2">
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs text-slate-400">Was this helpful?</span>
+        <button
+          type="button"
+          aria-label="Thumbs up"
+          aria-pressed={rating === "up"}
+          disabled={isSubmitting || rating !== null}
+          onClick={() => submitFeedback("up")}
+          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed ${
+            rating === "up"
+              ? "border-brand-blue text-brand-blue bg-sky-50"
+              : "border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 disabled:opacity-60"
+          }`}
+        >
+          <ThumbsUp className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-label="Thumbs down"
+          aria-pressed={rating === "down"}
+          disabled={isSubmitting || rating !== null}
+          onClick={() => submitFeedback("down")}
+          className={`h-7 w-7 rounded-full border flex items-center justify-center transition-colors disabled:cursor-not-allowed ${
+            rating === "down"
+              ? "border-brand-blue text-brand-blue bg-sky-50"
+              : "border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 disabled:opacity-60"
+          }`}
+        >
+          <ThumbsDown className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {!!error && <p className="text-xs text-rose-600">{error}</p>}
+    </div>
+  );
+}
+
+function buildMedicalNotesFeedbackContent(reportData: ReportData) {
+  const notes = JSON.stringify({
+    visitNotes: reportData.visitNotes,
+    soapNote: reportData.soapNote,
+    icdCodes: reportData.icdCodes,
+    cptCodes: reportData.cptCodes,
+    cpt2Codes: reportData.cpt2Codes,
+    emCodes: reportData.emCodes,
+  });
+
+  const response = [
+    reportData.visitNotes[0] ? "Visit Summary" : "",
+    "SOAP Notes",
+    reportData.icdCodes.icd_codes.length > 0 ? "ICD-10 Coding" : "",
+    reportData.cptCodes.cpt_codes.length > 0 ? "CPT Codes" : "",
+    reportData.cpt2Codes.codes.length > 0 ? "CPT-2 Codes" : "",
+    reportData.emCodes.em_code ? "EM Codes" : "",
+  ].filter(Boolean);
+
+  return { notes, response };
+}
+
+function buildOrdersFeedbackContent(reportData: ReportData) {
+  const meds = reportData.medication.prescribed_medications;
+  const notes = JSON.stringify({
+    medication: reportData.medication,
+    labtest: reportData.labtest,
+    procedure: reportData.procedure,
+    vaccine: reportData.vaccine,
+    referrals: reportData.referrals,
+    followup: reportData.followup,
+  });
+
+  const response =
+    meds.length > 0
+      ? meds.map((med) => med.correct_medicine_name).filter(Boolean)
+      : ["Orders"];
+
+  return { notes, response };
 }
 
 function buildTranscriptMessage(transcription: string[]) {
@@ -76,6 +229,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
+  const visitId = useAppSelector((s) => s.recording.visitId);
+  const sessionId = useAppSelector((s) => s.recording.sessionId);
+  const user = useAppSelector((s) => s.user);
 
   const [expandedSoap, setExpandedSoap] = useState<Record<string, boolean>>({});
   const [retryingSection, setRetryingSection] = useState<"visit" | "soap" | "icd" | "cpt" | "cpt2" | "em" | null>(null);
@@ -93,6 +249,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
   }
 
   if (!reportData) return null;
+
+  const doctorName = `${user.firstName} ${user.lastName}`.trim();
+  const medicalNotesFeedback = buildMedicalNotesFeedbackContent(reportData);
 
   const retryVisitNotes = async () => {
     if (!transcriptMessage) return;
@@ -520,6 +679,16 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
           </div>
         </div>
       </div>
+
+      <FeedbackPrompt
+        feedbackType="visit_notes"
+        visitId={visitId}
+        sessionId={sessionId}
+        notes={medicalNotesFeedback.notes}
+        response={medicalNotesFeedback.response}
+        doctorId={user.email || "unknown"}
+        doctorName={doctorName}
+      />
     </div>
   );
 }
@@ -527,6 +696,9 @@ function MedicalNotesTab({ transcriptMessage }: { transcriptMessage: string }) {
 function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
   const dispatch = useAppDispatch();
   const reportData = useAppSelector((s) => s.recording.reportData);
+  const visitId = useAppSelector((s) => s.recording.visitId);
+  const sessionId = useAppSelector((s) => s.recording.sessionId);
+  const user = useAppSelector((s) => s.user);
   const reportLoading = useAppSelector((s) => s.recording.reportLoading);
   const [retryingSection, setRetryingSection] = useState<"medications" | "labs" | "followup" | "procedures" | "vaccines" | "referrals" | null>(null);
   const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
@@ -546,6 +718,8 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
 
   if (!reportData) return null;
 
+  const doctorName = `${user.firstName} ${user.lastName}`.trim();
+  const ordersFeedback = buildOrdersFeedbackContent(reportData);
   const meds = reportData.medication.prescribed_medications;
   const labs = (reportData.labtest.lab_test as Array<Record<string, unknown>>)
     .map((item) => {
@@ -1273,6 +1447,16 @@ function OrdersTab({ transcriptMessage }: { transcriptMessage: string }) {
           )}
         </div>
       </div>
+
+      <FeedbackPrompt
+        feedbackType="medication"
+        visitId={visitId}
+        sessionId={sessionId}
+        notes={ordersFeedback.notes}
+        response={ordersFeedback.response}
+        doctorId={user.email || "unknown"}
+        doctorName={doctorName}
+      />
     </div>
   );
 }

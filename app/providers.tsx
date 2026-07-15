@@ -6,41 +6,61 @@ import { PersistGate } from "redux-persist/integration/react";
 import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setUser, setLoggedIn } from "@/store/slices/userSlice";
-import { configureCognitoAuth } from "@/lib/auth/cognito";
 import {
   DEFAULT_SUBSCRIPTION_MINUTES,
   MINUTES_LEFT_ATTRIBUTE,
   parseMinutesLeft,
-  syncMinutesLeft,
 } from "@/lib/auth/minutes";
-import { fetchUserAttributes } from "aws-amplify/auth";
-
-if (typeof window !== "undefined") {
-  configureCognitoAuth();
-}
+import {
+  decodeIdToken,
+  ensureIdentitySession,
+  hasValidIdentitySession,
+} from "@/lib/auth/session";
 
 function UserSessionSync() {
   const dispatch = useDispatch();
-  const isLoggedIn = useSelector((state: any) => state.user.isLoggedIn);
+  const isLoggedIn = useSelector((state: { user: { isLoggedIn: boolean } }) => state.user.isLoggedIn);
 
   useEffect(() => {
     async function syncUser() {
       try {
-        configureCognitoAuth();
-        const attributes = await fetchUserAttributes();
-        if (attributes && attributes.email) {
-          const firstName = attributes.given_name ?? attributes.name?.split(" ")[0] ?? "";
-          const lastName = attributes.family_name ?? attributes.name?.split(" ").slice(1).join(" ") ?? "";
-          dispatch(setUser({
-            firstName,
-            lastName,
-            email: attributes.email,
-            phone: attributes.phone_number ?? "",
-            speciality: attributes["custom:specialty"] ?? "",
-            clinicName: attributes["custom:clinic_name"] ?? "",
-            totalMinutesLeft: parseMinutesLeft(attributes[MINUTES_LEFT_ATTRIBUTE]),
-            totalMinutesAllowed: DEFAULT_SUBSCRIPTION_MINUTES,
-          }));
+        const session = await ensureIdentitySession();
+        if (session && hasValidIdentitySession(session)) {
+          const claims = decodeIdToken(session.idToken);
+          const firstName = claims?.given_name ?? claims?.name?.split(" ")[0];
+          const lastName =
+            claims?.family_name ?? claims?.name?.split(" ").slice(1).join(" ");
+
+          dispatch(
+            setUser({
+              ...(firstName ? { firstName } : {}),
+              ...(lastName ? { lastName } : {}),
+              email: claims?.email ?? session.email,
+              ...(claims?.role || claims?.["custom:role"] || claims?.["custom:specialty"]
+                ? {
+                    speciality: (claims.role ||
+                      claims["custom:role"] ||
+                      claims["custom:specialty"]) as string,
+                  }
+                : {}),
+              ...(claims?.["custom:clinic_name"]
+                ? { clinicName: claims["custom:clinic_name"] as string }
+                : {}),
+              ...(claims?.["custom:phone"] || claims?.phone_number
+                ? {
+                    phone: (claims["custom:phone"] || claims.phone_number) as string,
+                  }
+                : {}),
+              ...(claims?.[MINUTES_LEFT_ATTRIBUTE]
+                ? {
+                    totalMinutesLeft: parseMinutesLeft(
+                      claims[MINUTES_LEFT_ATTRIBUTE] as string
+                    ),
+                  }
+                : {}),
+              totalMinutesAllowed: DEFAULT_SUBSCRIPTION_MINUTES,
+            })
+          );
           dispatch(setLoggedIn(true));
           return;
         }
@@ -49,10 +69,10 @@ function UserSessionSync() {
       }
 
       if (isLoggedIn) {
-        await syncMinutesLeft(dispatch);
+        // Keep persisted Redux profile when remote attribute sync is unavailable.
       }
     }
-    syncUser();
+    void syncUser();
   }, [isLoggedIn, dispatch]);
   return null;
 }
